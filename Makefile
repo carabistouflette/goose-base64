@@ -2,8 +2,13 @@ GOOSE ?= .toolchain/goose/build/goose
 CC ?= gcc
 SANITIZER_CC ?= gcc
 BENCH_ITERATIONS ?= 1000
+FUZZ_CC ?= clang
+FUZZ_SECONDS ?= 120
+FUZZ_RUNS ?= 100000
+FUZZ_SEEDS ?= 20261107,20261108
+FUZZ_COVERAGE ?= 30
 .NOTPARALLEL:
-.PHONY: setup format check test property sanitize bench
+.PHONY: setup format check test property sanitize fuzz bench
 
 setup:
 	./scripts/setup-goose.sh
@@ -18,6 +23,7 @@ check:
 	"$(GOOSE)" check tests/stdlib_parity.goose
 	"$(GOOSE)" check tests/oracle.goose
 	"$(GOOSE)" check tests/alias_decode_lifetime.goose
+	"$(GOOSE)" check tests/fuzz.goose
 	"$(GOOSE)" check examples/basic_auth.goose
 	"$(GOOSE)" check examples/json_binary.goose
 	"$(GOOSE)" check bench/bench.goose
@@ -58,6 +64,16 @@ sanitize:
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./.build/json-binary-sanitize
 	SANITIZER_CC="$(SANITIZER_CC)" "$(GOOSE)" build tests/alias_decode_lifetime.goose --cc "$(abspath scripts/sanitizer-cc.sh)" --standalone --debug --no-bce -o .build/alias-decode-sanitize
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./.build/alias-decode-sanitize
+
+# Bounded libFuzzer + ASan/UBSan campaign on the real API. It proves both
+# failure paths first (a Goose assertion retained by the fuzzer, and a
+# deliberate overread caught by ASan), then requires every seed to reach
+# FUZZ_RUNS executions and FUZZ_SECONDS seconds. Keep .build/fuzz/campaign.json
+# with its corpus and logs.
+fuzz:
+	python3 scripts/fuzz.py --goose "$(GOOSE)" --cc "$(FUZZ_CC)" \
+		--seconds "$(FUZZ_SECONDS)" --min-runs "$(FUZZ_RUNS)" \
+		--seeds "$(FUZZ_SEEDS)" --coverage "$(FUZZ_COVERAGE)"
 
 # Run this target alone, with no other CPU work on the machine, and keep the
 # recorded JSON with its provenance.
