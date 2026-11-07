@@ -36,6 +36,7 @@
 //
 // Usage: bench <iterations> <implementation>
 import b64 from "..";
+import b64_accel from "..";
 import strict;
 import std;
 import os;
@@ -69,8 +70,10 @@ fn row(phase: u8[:], fixture: u8[:], implementation: u8[:], elapsed: i64,
           checksum);
 }
 
-// 0 = b64, 1 = strict, 2 = stdlib. Resolved once, outside every timed loop.
+// 0 = b64, 1 = strict, 2 = stdlib, 3 = b64_accel. Resolved once, outside every
+// timed loop. `b64_accel` is tested before `b64` because it shares the prefix.
 fn kind_of(implementation: u8[:]) -> i64 {
+    if implementation.starts_with("b64_accel") { return 3; }
     if implementation.starts_with("b64") { return 0; }
     if implementation.starts_with("strict") { return 1; }
     assert(implementation.starts_with("stdlib"));
@@ -80,6 +83,7 @@ fn kind_of(implementation: u8[:]) -> i64 {
 fn encode_once(kind: i64, out: u8[>..]&, source: u8[:], policy: b64::Policy) -> bool {
     if kind == 0 { return b64::encode(out, source, policy) == b64::Error.None; }
     if kind == 1 { return strict::encode(out, source, policy) == b64::Error.None; }
+    if kind == 3 { return b64_accel::encode(out, source, policy) == b64::Error.None; }
     base64::encode(out, source);
     return true;
 }
@@ -87,6 +91,7 @@ fn encode_once(kind: i64, out: u8[>..]&, source: u8[:], policy: b64::Policy) -> 
 fn decode_once(kind: i64, out: u8[>..]&, text: u8[:], policy: b64::Policy) -> bool {
     if kind == 0 { return b64::decode(out, text, policy) == b64::Error.None; }
     if kind == 1 { return strict::decode(out, text, policy) == b64::Error.None; }
+    if kind == 3 { return b64_accel::decode(out, text, policy) == b64::Error.None; }
     return base64::decode(out, text);
 }
 
@@ -99,6 +104,7 @@ fn basic_auth_once(kind: i64, out: u8[>..]&, user: u8[:], password: u8[:]) -> bo
     out.append("Basic ");
     let policy = b64::Policy { max_out: 4096 };
     if kind == 0 { return b64::encode(out, credential, policy) == b64::Error.None; }
+    if kind == 3 { return b64_accel::encode(out, credential, policy) == b64::Error.None; }
     return strict::encode(out, credential, policy) == b64::Error.None;
 }
 

@@ -162,10 +162,17 @@ def check_sanitizer(work):
     seeds = work / "negative-seeds"
     seeds.mkdir(exist_ok=True)
     (seeds / "input").write_bytes(b"negative control")
+    # libFuzzer writes a crash artifact next to the working directory unless it
+    # is told where to put it, which would leave a `crash-<hash>` file in the
+    # repository root. Every artifact this script produces stays under
+    # `.build/fuzz/`.
+    artifacts = work / "artifacts"
+    artifacts.mkdir(exist_ok=True)
     log = work / "negative-control.log"
     with log.open("wb") as handle:
         result = subprocess.run([str(work / "negative-control"), str(seeds),
-                                 "-runs=1", "-seed=1"],
+                                 "-runs=1", "-seed=1",
+                                 "-artifact_prefix=" + str(artifacts) + "/"],
                                 cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT,
                                 timeout=120)
     text = log.read_text(errors="replace")
