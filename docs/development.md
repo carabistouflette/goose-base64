@@ -1,0 +1,43 @@
+# Development commands
+
+Run everything from the library root. `GOOSE` defaults to
+`.toolchain/goose/build/goose`, which `make setup` builds from
+[GOOSE_REVISION](../GOOSE_REVISION). To reuse a compiler you already trust,
+pass it explicitly and verify it matches the pin:
+
+```sh
+make check test GOOSE=/absolute/path/to/goose
+```
+
+| Target | What it does |
+| --- | --- |
+| `make setup` | Fetch and build the pinned compiler into `.toolchain` |
+| `make format` | Rewrite Goose files in the standard layout |
+| `make check` | Format check, typecheck every Goose file, compile the Python files, `git diff --check` |
+| `make test` | API tests, standard-library parity, both examples, JIT and native builds, the aliasing compile test, the differential corpus |
+| `make property` | The differential corpus and the parity test against a `--debug --no-bce` build |
+| `make sanitize` | ASan + UBSan builds of the API test, the corpus and both examples |
+| `make bench` | Build and record the benchmark. Run it alone; see [bench/README.md](../bench/README.md) |
+
+`make sanitize` takes `SANITIZER_CC=gcc` or `SANITIZER_CC=clang`. If your shell
+exports a `LD_LIBRARY_PATH` that shadows the system C++ runtime, unset it for
+the sanitizer run: `env -u LD_LIBRARY_PATH make sanitize`.
+
+## Adding a test
+
+Behaviour changes need a public API regression in `tests/api.goose` and, where
+the change touches the codec, a case in `tests/oracle.py`. The corpus is
+deterministic; add cases to an existing group rather than introducing a new
+random source, and keep the group breakdown printed by the run accurate.
+
+If a change alters the compatible path, `tests/stdlib_parity.goose` must still
+pass: the standard library is the reference for standard-alphabet padded
+encoding and decoding.
+
+## Compiler changes
+
+A new `GOOSE_REVISION` requires the full matrix: `make check test property`,
+both sanitizer compilers, and a fresh benchmark record. Re-read the pinned
+`docs/stdlib.md` §base64 first: if the standard library gains the URL alphabet,
+unpadded output, canonicality or a budget, the justification in
+[design.md](design.md) changes and this module should shrink or disappear.
