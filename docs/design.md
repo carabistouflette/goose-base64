@@ -120,11 +120,28 @@ be removed. `decode` allocates nothing beyond the output growth. The runtime
 controls allocation capacity, which may exceed logical length; `max_out` is
 not a bound on allocator overhead or retained capacity.
 
-`src` must not alias `out`. The compiler enforces this statically: a call whose
-source slice points into the buffer being grown is rejected with "cannot resize
-out while src is still used: it may hold a reference or slice into it (§5.1)".
-`tests/alias_rejected.sh` asserts that diagnostic, so the guarantee is checked
-rather than assumed.
+`src` must not alias `out`. How strongly that is enforced depends on the
+function, and the difference is checked rather than assumed:
+
+- `encode` is rejected statically. It delegates whole groups to
+  `base64::encode`, which resizes `out` while `src` is still live, so the
+  compiler reports "cannot resize out while src is still used: it may hold a
+  reference or slice into it (§5.1)".
+- `decode` is not. Its write pass grows `out` with `push`, which the §5.1 check
+  does not flag, so the compiler accepts an aliased call. Non-aliasing is a
+  documented caller requirement there.
+
+The `decode` gap is a contract question, not a memory-safety one. Data stacks
+are fixed reserved regions (`gs_reserve_region`) grown by bump pointer and never
+reallocated, so a source pointer into the region stays valid while the call
+appends; and the write pass starts at the buffer's end, which is at or after the
+end of any slice of that buffer, so the source is never overwritten. An aliased
+call therefore yields the text followed by its own decoding — well defined, and
+outside the contract.
+
+`tests/alias_rejected.sh` pins the compile-time behaviour of both functions and
+`tests/alias_decode_lifetime.goose` pins the runtime behaviour, so a change in
+either direction fails a test and forces this section to be updated.
 
 ## What is reused, and what is not
 

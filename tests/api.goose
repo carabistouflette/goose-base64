@@ -14,7 +14,7 @@ fn policy(alphabet: b64::Alphabet, padding: b64::Padding, max_out: i64) -> b64::
 // Encode `src` into a fresh buffer and return the text.
 fn text_of(src: u8[:], alphabet: b64::Alphabet, padding: b64::Padding) -> u8[>..] {
     var out: u8[>..] = [];
-    let error = b64::encode(out, src, policy(alphabet, padding, 4096));
+    let error = b64::encode(out, src, policy(alphabet, padding, 65536));
     assert(error == b64::Error.None);
     assert(out.len == b64::encoded_len(src.len, padding));
     return out;
@@ -42,6 +42,135 @@ fn rejects_encode(src: u8[:], alphabet: b64::Alphabet, padding: b64::Padding, ma
     let error = b64::encode(out, src, policy(alphabet, padding, max_out));
     assert(error == b64::Error.OutputBudget);
     assert(out == "prefix");
+}
+
+// Appends accumulate: a later call never rewrites an earlier result, and a
+// rejected call in the middle leaves the accumulated bytes alone.
+fn appends_accumulate() {
+    var out: u8[>..] = [];
+    assert(b64::encode(out, "f", policy(b64::Alphabet.Standard, b64::Padding.Padded, 64)) == b64::Error.None);
+    assert(b64::encode(out, "o", policy(b64::Alphabet.Standard, b64::Padding.Padded, 64)) == b64::Error.None);
+    assert(b64::encode(out, "o", policy(b64::Alphabet.Standard, b64::Padding.Padded, 64)) == b64::Error.None);
+    assert(out == "Zg==bw==bw==");
+    assert(b64::encode(out, "x", policy(b64::Alphabet.Standard, b64::Padding.Padded, 3)) == b64::Error.OutputBudget);
+    assert(out == "Zg==bw==bw==");
+    var bytes: u8[>..] = [];
+    assert(b64::decode(bytes, "Zg==", policy(b64::Alphabet.Standard, b64::Padding.Padded, 64)) == b64::Error.None);
+    assert(b64::decode(bytes, "bw==", policy(b64::Alphabet.Standard, b64::Padding.Padded, 64)) == b64::Error.None);
+    assert(bytes == "fo");
+    assert(b64::decode(bytes, "Zh==", policy(b64::Alphabet.Standard, b64::Padding.Padded, 64)) == b64::Error.NonCanonical);
+    assert(bytes == "fo");
+}
+
+// The budget counts appended bytes, not the buffer's total length, and the URL
+// rewrite never touches bytes that were already in the buffer.
+fn budget_counts_appended_only() {
+    var out = str("prefix");
+    assert(b64::encode(out, "f", policy(b64::Alphabet.Standard, b64::Padding.Padded, 4)) == b64::Error.None);
+    assert(out == "prefixZg==");
+    out = str("prefix");
+    assert(b64::encode(out, "\xfb\xff", policy(b64::Alphabet.Url, b64::Padding.Unpadded, 3)) == b64::Error.None);
+    assert(out == "prefix-_8");
+    out = str("prefix");
+    assert(b64::decode(out, "Zg==", policy(b64::Alphabet.Standard, b64::Padding.Padded, 1)) == b64::Error.None);
+    assert(out == "prefixf");
+    out = str("prefix");
+    assert(b64::decode(out, "-_8", policy(b64::Alphabet.Url, b64::Padding.Unpadded, 2)) == b64::Error.None);
+    assert(out == "prefix\xfb\xff");
+}
+
+// The codec retains no reference to its input: mutating the source after the
+// call cannot change what was appended.
+fn retains_no_reference() {
+    var source: u8[>..] = [];
+    source.append("f");
+    var out: u8[>..] = [];
+    assert(b64::encode(out, source, policy(b64::Alphabet.Standard, b64::Padding.Padded, 64)) == b64::Error.None);
+    source[0] = 'X';
+    assert(out == "Zg==");
+    var text: u8[>..] = [];
+    text.append("Zg==");
+    var bytes: u8[>..] = [];
+    assert(b64::decode(bytes, text, policy(b64::Alphabet.Standard, b64::Padding.Padded, 64)) == b64::Error.None);
+    text[0] = 'A';
+    assert(bytes == "f");
+}
+
+// decoded_len is a sizing helper, not a validator: it reads only the trailing
+// '=', so it returns a count for texts decode rejects. Pinned so the contract
+// cannot drift silently.
+fn decoded_len_is_shape_only() {
+    assert(b64::decoded_len("====", b64::Padding.Padded) == 1);
+    assert(b64::decoded_len("A===", b64::Padding.Padded) == 1);
+    assert(b64::decoded_len("Z===", b64::Padding.Padded) == 1);
+    assert(b64::decoded_len("!!!!", b64::Padding.Padded) == 3);
+    assert(b64::decoded_len("====", b64::Padding.Unpadded) == 3);
+    assert(b64::decoded_len("!!!!", b64::Padding.Unpadded) == 3);
+    assert(b64::decoded_len("===", b64::Padding.Padded) == -1);
+    assert(b64::decoded_len("=====", b64::Padding.Padded) == -1);
+    assert(b64::decoded_len("======", b64::Padding.Padded) == -1);
+    assert(b64::decoded_len("=======", b64::Padding.Padded) == -1);
+    assert(b64::decoded_len("========", b64::Padding.Padded) == 4);
+    // Every one of those is rejected by decode, which is the point.
+    rejects("====", b64::Alphabet.Standard, b64::Padding.Padded, b64::Error.InvalidPadding);
+    rejects("!!!!", b64::Alphabet.Standard, b64::Padding.Padded, b64::Error.InvalidCharacter);
+    rejects("========", b64::Alphabet.Standard, b64::Padding.Padded, b64::Error.InvalidPadding);
+}
+
+// Truncation and corruption at realistic sizes. The invariant is exact: a
+// failure leaves the buffer byte-identical, a success appends exactly
+// decoded_len bytes after the caller's prefix.
+fn truncation_and_corruption() {
+    let sizes = [256, 1024, 4096];
+    for index in sizes.len {
+        let size = sizes[index];
+        var source: u8[>..] = [];
+        for i in size { source.push((i * 131 + 7) as! u8); }
+        for alphabet in [b64::Alphabet.Standard, b64::Alphabet.Url] {
+            for padding in [b64::Padding.Padded, b64::Padding.Unpadded] {
+                let text = text_of(source, alphabet, padding);
+                for cut in 1..5 {
+                    let truncated = text[..text.len - cut];
+                    var out = str("prefix");
+                    let error = b64::decode(out, truncated, policy(alphabet, padding, 8192));
+                    let need = b64::decoded_len(truncated, padding);
+                    if error == b64::Error.None {
+                        assert(need >= 0);
+                        assert(out.len == 6 + need);
+                        assert(out[..6] == "prefix");
+                    } else {
+                        assert(out == "prefix");
+                    }
+                }
+                // One invalid byte at the beginning, the middle and the end of
+                // the data region: all three are InvalidCharacter.
+                let padlen = if padding == b64::Padding.Padded {
+                    if text[text.len - 1] == '=' {
+                        if text[text.len - 2] == '=' { 2 } else { 1 }
+                    } else { 0 }
+                } else { 0 };
+                let body_len = text.len - padlen;
+                for at in [0, body_len / 2, body_len - 1] {
+                    var mutated = str(text);
+                    mutated[at] = '!';
+                    var out = str("prefix");
+                    assert(b64::decode(out, mutated, policy(alphabet, padding, 8192)) == b64::Error.InvalidCharacter);
+                    assert(out == "prefix");
+                }
+                // Corrupting the padding itself: with two '=' the remaining one
+                // becomes misplaced (InvalidPadding); with one '=' nothing is
+                // left to misplace, so the byte is simply invalid.
+                if padlen > 0 {
+                    var mutated = str(text);
+                    mutated[text.len - 1] = '!';
+                    var out = str("prefix");
+                    let want = if padlen == 2 { b64::Error.InvalidPadding } else { b64::Error.InvalidCharacter };
+                    assert(b64::decode(out, mutated, policy(alphabet, padding, 8192)) == want);
+                    assert(out == "prefix");
+                }
+            }
+        }
+    }
 }
 
 fn main() {
@@ -149,6 +278,13 @@ fn main() {
     decodes("Zg_A", b64::Alphabet.Url, b64::Padding.Padded, "f\x0f\xc0");
     decodes("Zg+A", b64::Alphabet.Standard, b64::Padding.Padded, "f\x0f\x80");
     decodes("Zg/A", b64::Alphabet.Standard, b64::Padding.Padded, "f\x0f\xc0");
+    // An invalid character before the padding region wins over the padding,
+    // and a '=' inside the data region wins over a later invalid character.
+    rejects("Z!==", b64::Alphabet.Standard, b64::Padding.Padded, b64::Error.InvalidCharacter);
+    rejects("!===", b64::Alphabet.Standard, b64::Padding.Padded, b64::Error.InvalidCharacter);
+    rejects("=!==", b64::Alphabet.Standard, b64::Padding.Padded, b64::Error.InvalidPadding);
+    rejects("Z!g=", b64::Alphabet.Standard, b64::Padding.Padded, b64::Error.InvalidCharacter);
+    rejects("Z=g!", b64::Alphabet.Standard, b64::Padding.Padded, b64::Error.InvalidPadding);
 
     // NonCanonical: the standard library accepts these, this module does not.
     rejects("Zh==", b64::Alphabet.Standard, b64::Padding.Padded, b64::Error.NonCanonical);
@@ -248,6 +384,13 @@ fn main() {
     assert(b64::decoded_len("Zg=", b64::Padding.Padded) == -1);
     assert(b64::decoded_len("=", b64::Padding.Padded) == -1);
     assert(b64::decoded_len("A==", b64::Padding.Padded) == -1);
+
+    // State, ownership, lifetime and the sizing helper's exact contract.
+    appends_accumulate();
+    budget_counts_appended_only();
+    retains_no_reference();
+    decoded_len_is_shape_only();
+    truncation_and_corruption();
 
     print("Base64 public API tests passed");
 }

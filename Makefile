@@ -17,16 +17,18 @@ check:
 	"$(GOOSE)" check tests/api.goose
 	"$(GOOSE)" check tests/stdlib_parity.goose
 	"$(GOOSE)" check tests/oracle.goose
+	"$(GOOSE)" check tests/alias_decode_lifetime.goose
 	"$(GOOSE)" check examples/basic_auth.goose
 	"$(GOOSE)" check examples/json_binary.goose
 	"$(GOOSE)" check bench/bench.goose
-	python3 -m py_compile tests/oracle.py bench/measure.py
+	python3 -m py_compile tests/oracle.py bench/measure.py scripts/*.py
 	git diff --check
 
 test:
 	mkdir -p .build
 	"$(GOOSE)" run tests/api.goose
 	"$(GOOSE)" run tests/stdlib_parity.goose
+	"$(GOOSE)" run tests/alias_decode_lifetime.goose
 	"$(GOOSE)" run examples/basic_auth.goose
 	"$(GOOSE)" run examples/json_binary.goose
 	"$(GOOSE)" build tests/api.goose --cc "$(CC)" -O2 -o .build/api
@@ -54,6 +56,8 @@ sanitize:
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./.build/basic-auth-sanitize
 	SANITIZER_CC="$(SANITIZER_CC)" "$(GOOSE)" build examples/json_binary.goose --cc "$(abspath scripts/sanitizer-cc.sh)" --standalone --debug --no-bce -o .build/json-binary-sanitize
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./.build/json-binary-sanitize
+	SANITIZER_CC="$(SANITIZER_CC)" "$(GOOSE)" build tests/alias_decode_lifetime.goose --cc "$(abspath scripts/sanitizer-cc.sh)" --standalone --debug --no-bce -o .build/alias-decode-sanitize
+	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./.build/alias-decode-sanitize
 
 # Run this target alone, with no other CPU work on the machine, and keep the
 # recorded JSON with its provenance.

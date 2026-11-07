@@ -35,7 +35,7 @@ To use the library in your own application, save this as `app.goose` and run
 `goose run app.goose` with that compiler on your `PATH`:
 
 ```goose
-import b64 from "carabistouflette/goose-base64@8a8d953216828bfe7628605895034354a06bc5b7";
+import b64 from "carabistouflette/goose-base64@334e708d4d02448ae9caeb8767d773516a1f99ed";
 import std;
 
 fn main() {
@@ -98,8 +98,18 @@ Encoding and decoding take O(n) time and O(1) extra space beyond the output.
 The logical output grows by exactly the appended count; the runtime controls
 the buffer's allocation capacity. `max_out` limits appended bytes, not allocator
 overhead or retained capacity. There is no library input-size cap: callers must
-bound the read, the write and total work. `src` must not alias `out`; the
-compiler rejects that statically.
+bound the read, the write and total work.
+
+`src` must not alias `out`. The compiler rejects that statically for `encode`,
+with "cannot resize out while src is still used" (§5.1). For `decode` it is a
+caller requirement rather than a compile-time guarantee: the write pass grows
+the buffer with `push`, which the §5.1 check does not flag. Such a call is not a
+memory-safety hazard — data stacks are fixed reserved regions grown by bump
+pointer and never reallocated, so the source bytes stay valid — but it appends
+the decoding after the text, which is outside the contract.
+`tests/alias_rejected.sh` pins the compile-time behaviour and
+`tests/alias_decode_lifetime.goose` pins the runtime behaviour, so both are
+checked rather than assumed.
 
 The library does not provide streaming, MIME line folding, `base32`/`base16`,
 alphabet detection, whitespace tolerance or I/O. Decoding is not constant-time
