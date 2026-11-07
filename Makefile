@@ -8,7 +8,7 @@ FUZZ_RUNS ?= 100000
 FUZZ_SEEDS ?= 20261107,20261108
 FUZZ_COVERAGE ?= 30
 .NOTPARALLEL:
-.PHONY: setup format check test property sanitize fuzz bench
+.PHONY: setup format check test property sanitize fuzz mutation bench
 
 setup:
 	./scripts/setup-goose.sh
@@ -74,6 +74,11 @@ fuzz:
 	python3 scripts/fuzz.py --goose "$(GOOSE)" --cc "$(FUZZ_CC)" \
 		--seconds "$(FUZZ_SECONDS)" --min-runs "$(FUZZ_RUNS)" \
 		--seeds "$(FUZZ_SEEDS)" --coverage "$(FUZZ_COVERAGE)"
+
+# Mutation-test the documented guarantees. The suite must pass on the pristine
+# tree and fail on every mutant; a survivor is a test gap and fails the target.
+mutation:
+	python3 scripts/mutation-test.py --goose "$(GOOSE)"
 
 # Run this target alone, with no other CPU work on the machine, and keep the
 # recorded JSON with its provenance.
