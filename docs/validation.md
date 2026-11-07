@@ -111,10 +111,9 @@ environment input. Re-running it reproduces the same 940,496 cases.
 
 ## Not executed
 
-- **Performance measurements.** `bench/bench.goose` and `bench/measure.py` are
-  written and the harness compiles (`goose check bench/bench.goose`), but no
-  timing run was made. Measurements are taken one at a time with no other CPU
-  work in flight. No performance claim is made anywhere in this repository.
+- **Qualified performance measurements.** No comparative campaign has been
+  accepted. A one-iteration diagnostic replay verified the benchmark row
+  protocol after fixing duplicate newlines; its timings are discarded.
 - **`make setup`.** The pinned compiler was reused from a shared toolchain
   rather than rebuilt, to avoid a heavy concurrent build. The standalone-clone
   quickstart therefore has not been exercised end to end here.

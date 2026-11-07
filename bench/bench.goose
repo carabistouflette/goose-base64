@@ -78,9 +78,9 @@ fn main() {
         assert(mine == theirs);
         content_sum += content(mine) + content(theirs);
         print("encode\t", names[index], "\tb64\t", mine_ns, "\t", iterations, "\t",
-              source.len, "\t", mine.len, "\t1\n");
+              source.len, "\t", mine.len, "\t1");
         print("encode\t", names[index], "\tstdlib\t", theirs_ns, "\t", iterations, "\t",
-              source.len, "\t", theirs.len, "\t1\n");
+              source.len, "\t", theirs.len, "\t1");
 
         // Encode, fresh buffer: allocation and ownership cost per call.
         start = clock_ns();
@@ -98,9 +98,9 @@ fn main() {
         }
         let theirs_fresh_ns = clock_ns() - start;
         print("encode\t", names[index], "\tb64_fresh\t", mine_fresh_ns, "\t", iterations, "\t",
-              source.len, "\t", mine.len, "\t1\n");
+              source.len, "\t", mine.len, "\t1");
         print("encode\t", names[index], "\tstdlib_fresh\t", theirs_fresh_ns, "\t", iterations, "\t",
-              source.len, "\t", theirs.len, "\t1\n");
+              source.len, "\t", theirs.len, "\t1");
 
         // Decode, reused buffer, on canonical standard padded text.
         var text: u8[>..] = [];
@@ -124,9 +124,9 @@ fn main() {
         assert(mine == theirs && mine == source);
         content_sum += content(mine) + content(theirs);
         print("decode\t", names[index], "\tb64\t", mine_decode_ns, "\t", iterations, "\t",
-              text.len, "\t", mine.len, "\t1\n");
+              text.len, "\t", mine.len, "\t1");
         print("decode\t", names[index], "\tstdlib\t", theirs_decode_ns, "\t", iterations, "\t",
-              text.len, "\t", theirs.len, "\t1\n");
+              text.len, "\t", theirs.len, "\t1");
 
         // Decode, fresh buffer.
         start = clock_ns();
@@ -144,9 +144,9 @@ fn main() {
         }
         let theirs_decode_fresh_ns = clock_ns() - start;
         print("decode\t", names[index], "\tb64_fresh\t", mine_decode_fresh_ns, "\t", iterations, "\t",
-              text.len, "\t", mine.len, "\t1\n");
+              text.len, "\t", mine.len, "\t1");
         print("decode\t", names[index], "\tstdlib_fresh\t", theirs_decode_fresh_ns, "\t", iterations, "\t",
-              text.len, "\t", theirs.len, "\t1\n");
+              text.len, "\t", theirs.len, "\t1");
     }
 
     // Rejection paths. These are not equal work: this module adds the
@@ -172,9 +172,9 @@ fn main() {
         }
         let theirs_ns = clock_ns() - start;
         print("reject\t", rejects[index], "\tb64\t", mine_ns, "\t", iterations, "\t",
-              text.len, "\t", mine.len, "\t0\n");
+              text.len, "\t", mine.len, "\t0");
         print("reject\t", rejects[index], "\tstdlib\t", theirs_ns, "\t", iterations, "\t",
-              text.len, "\t", theirs.len, "\t0\n");
+              text.len, "\t", theirs.len, "\t0");
     }
 
     print("checksum\t", checksum, "\t", content_sum);
