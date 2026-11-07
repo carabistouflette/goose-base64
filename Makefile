@@ -14,12 +14,14 @@ setup:
 	./scripts/setup-goose.sh
 
 format:
-	"$(GOOSE)" format b64.goose tests examples bench
+	"$(GOOSE)" format b64.goose b64_accel.goose tests examples bench
 
 check:
-	"$(GOOSE)" format --check b64.goose tests examples bench
+	"$(GOOSE)" format --check b64.goose b64_accel.goose tests examples bench
 	"$(GOOSE)" check b64.goose
+	"$(GOOSE)" check b64_accel.goose
 	"$(GOOSE)" check tests/api.goose
+	"$(GOOSE)" check tests/accelerated.goose
 	"$(GOOSE)" check tests/stdlib_parity.goose
 	"$(GOOSE)" check tests/oracle.goose
 	"$(GOOSE)" check tests/alias_decode_lifetime.goose
@@ -35,6 +37,7 @@ check:
 test:
 	mkdir -p .build
 	"$(GOOSE)" run tests/api.goose
+	"$(GOOSE)" run tests/accelerated.goose
 	"$(GOOSE)" run tests/stdlib_parity.goose
 	"$(GOOSE)" run tests/alias_decode_lifetime.goose
 	"$(GOOSE)" run examples/basic_auth.goose
@@ -66,6 +69,8 @@ sanitize:
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./.build/json-binary-sanitize
 	SANITIZER_CC="$(SANITIZER_CC)" "$(GOOSE)" build tests/alias_decode_lifetime.goose --cc "$(abspath scripts/sanitizer-cc.sh)" --standalone --debug --no-bce -o .build/alias-decode-sanitize
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./.build/alias-decode-sanitize
+	SANITIZER_CC="$(SANITIZER_CC)" "$(GOOSE)" build tests/accelerated.goose --cc "$(abspath scripts/sanitizer-cc.sh)" --standalone -O1 --no-bce -o .build/accelerated-sanitize
+	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./.build/accelerated-sanitize
 
 # Bounded libFuzzer + ASan/UBSan campaign on the real API. It proves both
 # failure paths first (a Goose assertion retained by the fuzzer, and a
@@ -83,10 +88,10 @@ mutation:
 	python3 scripts/mutation-test.py --goose "$(GOOSE)"
 
 # Run this target alone, with no other CPU work on the machine, and keep the
-# recorded JSON with its provenance.
+# recorded JSON with its provenance. It goes through bench/campaign.sh so the
+# frozen baseline, the equal-contract competitor and the external comparators
+# are all built and raced the same way as in a recorded campaign.
 bench:
 	mkdir -p .build
-	"$(GOOSE)" build bench/strict_equivalence.goose --cc "$(CC)" -O2 -o .build/strict-equivalence
-	./.build/strict-equivalence
-	"$(GOOSE)" build bench/bench.goose --cc "$(CC)" -O2 -o .build/bench
-	BENCH_CC="$(CC)" python3 bench/measure.py --binary .build/bench --iterations $(BENCH_ITERATIONS) --goose "$(GOOSE)"
+	GOOSE="$(GOOSE)" CC="$(CC)" BENCH_ITERATIONS="$(BENCH_ITERATIONS)" \
+		./bench/campaign.sh .build/benchmark.json
