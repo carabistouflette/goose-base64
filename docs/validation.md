@@ -48,20 +48,20 @@ Passed in 10.8 s. In order:
 
 ### `make property GOOSE=./.build/goose`
 
-Passed in 14.2 s. The same 940,496 cases against a `--debug --no-bce` build
+Passed in 14.0 s. The same 940,496 cases against a `--debug --no-bce` build
 (bounds checks kept, overflow and range checks on), plus the parity test built
 the same way.
 
 ### `env -u LD_LIBRARY_PATH make sanitize GOOSE=./.build/goose SANITIZER_CC=gcc`
 
-Passed in 28.0 s. ASan + UBSan, `--standalone --debug --no-bce`, on the API
+Passed in 27.4 s. ASan + UBSan, `--standalone --debug --no-bce`, on the API
 test, the full 940,496-case differential corpus and both examples, with
 `ASAN_OPTIONS=detect_leaks=1:abort_on_error=1` and
 `UBSAN_OPTIONS=halt_on_error=1`.
 
 ### `env -u LD_LIBRARY_PATH make sanitize GOOSE=./.build/goose SANITIZER_CC=clang`
 
-Passed in 14.2 s, same targets and options with Clang 23.1.4.
+Passed in 13.0 s, same targets and options with Clang 23.1.4.
 
 `LD_LIBRARY_PATH` is unset in these two commands because this shell inherits a
 tool-specific `libstdc++` that is older than the system sanitizer runtimes. That
