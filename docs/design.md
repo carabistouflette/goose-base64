@@ -113,11 +113,12 @@ a file must bound the read itself; `max_out` bounds the write, not the read.
 
 ## Allocation and ownership
 
-`out` is a caller-owned growable byte buffer (`u8[>..]&`). The only allocation
-is the buffer's own growth, and it is exactly the appended count: `encode`
-writes the final 1-2 byte group itself rather than letting the standard library
-write padding that would then be removed, so no temporary padding is ever
-allocated. `decode` allocates nothing beyond the output growth.
+`out` is a caller-owned growable byte buffer (`u8[>..]&`). Its logical length
+grows by exactly the appended count: `encode` writes the final 1-2 byte group
+itself rather than letting the standard library append padding that would then
+be removed. `decode` allocates nothing beyond the output growth. The runtime
+controls allocation capacity, which may exceed logical length; `max_out` is
+not a bound on allocator overhead or retained capacity.
 
 `src` must not alias `out`. The compiler enforces this statically: a call whose
 source slice points into the buffer being grown is rejected with "cannot resize

@@ -5,9 +5,9 @@ Strict, bounded RFC 4648 Base64 and Base64url for the
 standard or URL-safe alphabet, choose padded or unpadded output, cap the bytes
 one call may append, and reject text whose unused trailing bits are not zero.
 
-Apache-2.0. Experimental: no commit is published yet, so the import lines below
-show the shape of a pinned import rather than a resolvable one. Use a sibling
-checkout until a reviewed commit is published.
+Apache-2.0. Experimental, with no stable release yet. The import below pins the
+reviewed implementation; only Linux x86-64 with the recorded compiler revision
+has been validated.
 
 ## Quickstart
 
@@ -35,7 +35,7 @@ To use the library in your own application, save this as `app.goose` and run
 `goose run app.goose` with that compiler on your `PATH`:
 
 ```goose
-import b64 from "carabistouflette/goose-base64@<reviewed-commit>";
+import b64 from "carabistouflette/goose-base64@8a8d953216828bfe7628605895034354a06bc5b7";
 import std;
 
 fn main() {
@@ -94,10 +94,12 @@ are not zero (RFC 4648 §3.5), so a different text would decode to the same
 bytes. Of the 64 possible final characters, 4 are canonical for a two-character
 tail and 16 for a three-character tail.
 
-Encoding and decoding take O(n) time and O(1) extra space. The only allocation
-is the output buffer's own growth, and it is exactly the appended count. There
-is no library input-size cap: callers must bound the read, the write and the
-total work. `src` must not alias `out`; the compiler rejects that statically.
+Encoding and decoding take O(n) time and O(1) extra space beyond the output.
+The logical output grows by exactly the appended count; the runtime controls
+the buffer's allocation capacity. `max_out` limits appended bytes, not allocator
+overhead or retained capacity. There is no library input-size cap: callers must
+bound the read, the write and total work. `src` must not alias `out`; the
+compiler rejects that statically.
 
 The library does not provide streaming, MIME line folding, `base32`/`base16`,
 alphabet detection, whitespace tolerance or I/O. Decoding is not constant-time

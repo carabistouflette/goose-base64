@@ -33,7 +33,7 @@ enum Error {
 
 // What `value_of` returns for a byte outside the selected alphabet.
 const INVALID: u8 = 255;
-// Largest input length whose encoded length is representable in i64.
+// Conservative input-length cap, keeping encoded-length arithmetic within i64.
 const MAX_INPUT: i64 = 2305843009213693951;
 
 // Encoding and decoding policy. `max_out` is required: it is the maximum
