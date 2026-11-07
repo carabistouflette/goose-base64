@@ -27,6 +27,8 @@ check:
 	"$(GOOSE)" check examples/basic_auth.goose
 	"$(GOOSE)" check examples/json_binary.goose
 	"$(GOOSE)" check bench/bench.goose
+	"$(GOOSE)" check bench/strict.goose
+	"$(GOOSE)" check bench/strict_equivalence.goose
 	python3 -m py_compile tests/oracle.py bench/measure.py scripts/*.py
 	git diff --check
 
@@ -84,5 +86,7 @@ mutation:
 # recorded JSON with its provenance.
 bench:
 	mkdir -p .build
+	"$(GOOSE)" build bench/strict_equivalence.goose --cc "$(CC)" -O2 -o .build/strict-equivalence
+	./.build/strict-equivalence
 	"$(GOOSE)" build bench/bench.goose --cc "$(CC)" -O2 -o .build/bench
-	BENCH_CC="$(CC)" python3 bench/measure.py --binary .build/bench --iterations $(BENCH_ITERATIONS)
+	BENCH_CC="$(CC)" python3 bench/measure.py --binary .build/bench --iterations $(BENCH_ITERATIONS) --goose "$(GOOSE)"

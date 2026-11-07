@@ -162,7 +162,8 @@ Validated on Linux x86-64 with the pinned Goose compiler, GCC and Clang; CI runs
 on Ubuntu 24.04. The library is pure Goose and makes no OS calls. Other
 platforms and compiler revisions have not been verified. Tests need Python 3.11+.
 
-Run `make check test` after setup. See [development commands](docs/development.md),
+Run `make check test` after setup, and `make fuzz mutation` before claiming a
+behaviour change is proven. See [development commands](docs/development.md),
 [validation history](docs/validation.md) and
 [benchmark scope](bench/README.md). CI checks that the benchmark harness builds
 and runs, without timing thresholds. See [contributing](CONTRIBUTING.md),

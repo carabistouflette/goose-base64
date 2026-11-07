@@ -1,24 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
-// Benchmark harness. It measures this module against the pinned standard
-// library's `base64` module, which is the maintained competitor and the code
-// this module reuses on the compatible path.
+// Benchmark harness. One process times exactly one implementation, so the
+// runner (bench/measure.py) controls the order in which implementations are
+// measured and can alternate it between samples. That removes the systematic
+// bias of always timing one implementation first, and gives a per-process peak
+// RSS for each implementation.
 //
-// Fairness rules, enforced by the harness and recorded in every row:
-//   * Both implementations append to a caller-owned `u8[>..]` buffer and take
-//     a `const u8[:]` input, so the call shapes are identical.
-//   * The `comparable` column is 1 only where both do the same work. Decode
-//     rows that exercise canonicality, the URL alphabet or unpadded text are 0,
-//     because this module does strictly more work there.
-//   * `*_fresh` rows allocate a new output buffer per call, so the allocation
-//     and ownership cost is visible instead of amortised away.
-//   * Inputs are built outside the timed loop. Inside it, a three-byte content
+// Implementations:
+//
+//   b64     this library.
+//   strict  the equal-contract competitor: the pinned standard library's
+//           `base64` plus the policy layer a caller has to write today to get
+//           this contract (bench/strict.goose). Same contract, same codec
+//           underneath, different structure. bench/strict_equivalence.goose
+//           proves the two agree byte for byte before any number is recorded.
+//   stdlib  the pinned standard library alone. It is the maintained, fast codec
+//           but it is permissive: no URL alphabet, no unpadded text, no
+//           canonicality check and no budget. It does strictly less work, so
+//           its rows carry `comparable` 0 and no ratio is computed from them.
+//           It is reported as a lower bound, never as a fair race.
+//
+// Fairness rules enforced here and recorded in every row:
+//   * identical call shapes: a caller-owned `u8[>..]` output and a `const u8[:]`
+//     input, for all three;
+//   * `comparable` is 1 only where the implementation does the same work as
+//     `b64`, so only `strict` rows produce a ratio;
+//   * `*_fresh` rows allocate a new output buffer per call, so allocation and
+//     ownership cost is visible instead of amortised;
+//   * inputs are built outside the timed loop; inside it a three-byte content
 //     sample keeps each call live without adding O(n) work that would dilute
-//     the ratio; the full output content is summed outside the loop, so a
-//     wrong-but-same-length result cannot pass. Both are identical work for
-//     both implementations.
+//     the ratio; the full output is checksummed outside the loop, so a
+//     wrong-but-same-length result cannot pass;
+//   * the checksum is FNV-1a over the whole output, not a length;
+//   * the implementation is selected once, before the loop, into an integer, so
+//     the per-call dispatch is an integer compare rather than a string compare.
 //
-// Usage: bench <iterations>
+// Usage: bench <iterations> <implementation>
 import b64 from "..";
+import strict;
 import std;
 import os;
 import base64;
@@ -32,150 +50,197 @@ fn sample(bytes: u8[:]) -> i64 {
     return bytes[0] + bytes[bytes.len / 2] + bytes[bytes.len - 1];
 }
 
-// The full content checksum, accumulated outside the timed loop. A length alone
-// would not detect a wrong-but-same-length output.
-fn content(bytes: u8[:]) -> i64 {
-    var sum: i64 = 0;
-    for i in bytes.len { sum += bytes[i]; }
-    return sum;
+// FNV-1a over the whole output, accumulated outside the timed loop. A length
+// alone would not detect a wrong-but-same-length output. The multiply stays
+// below 2^56, so it cannot overflow i64.
+fn fnv(bytes: u8[:]) -> i64 {
+    var h: i64 = 2166136261;
+    for i in bytes.len {
+        h = ((h ^ bytes[i]) * 16777619) & 4294967295;
+    }
+    return h;
+}
+
+fn row(phase: u8[:], fixture: u8[:], implementation: u8[:], elapsed: i64,
+       iterations: i64, input_len: i64, output_len: i64, comparable: i64,
+       checksum: i64) {
+    print(phase, "\t", fixture, "\t", implementation, "\t", elapsed, "\t",
+          iterations, "\t", input_len, "\t", output_len, "\t", comparable, "\t",
+          checksum);
+}
+
+// 0 = b64, 1 = strict, 2 = stdlib. Resolved once, outside every timed loop.
+fn kind_of(implementation: u8[:]) -> i64 {
+    if implementation.starts_with("b64") { return 0; }
+    if implementation.starts_with("strict") { return 1; }
+    assert(implementation.starts_with("stdlib"));
+    return 2;
+}
+
+fn encode_once(kind: i64, out: u8[>..]&, source: u8[:], policy: b64::Policy) -> bool {
+    if kind == 0 { return b64::encode(out, source, policy) == b64::Error.None; }
+    if kind == 1 { return strict::encode(out, source, policy) == b64::Error.None; }
+    base64::encode(out, source);
+    return true;
+}
+
+fn decode_once(kind: i64, out: u8[>..]&, text: u8[:], policy: b64::Policy) -> bool {
+    if kind == 0 { return b64::decode(out, text, policy) == b64::Error.None; }
+    if kind == 1 { return strict::decode(out, text, policy) == b64::Error.None; }
+    return base64::decode(out, text);
+}
+
+// The consumer end of the path: an HTTP Basic header value (RFC 7617 §2).
+fn basic_auth_once(kind: i64, out: u8[>..]&, user: u8[:], password: u8[:]) -> bool {
+    var credential: u8[>..] = [];
+    credential.append(user);
+    credential.push(':');
+    credential.append(password);
+    out.append("Basic ");
+    let policy = b64::Policy { max_out: 4096 };
+    if kind == 0 { return b64::encode(out, credential, policy) == b64::Error.None; }
+    return strict::encode(out, credential, policy) == b64::Error.None;
 }
 
 fn main() {
     let argv = args();
-    var iterations = 1000;
-    if argv.len > 1 {
-        let count, ok = parse_int(argv[1], 10);
-        assert(ok && count > 0 && count <= 10000000);
-        iterations = count;
-    }
+    assert(argv.len == 3);
+    let iterations, ok = parse_int(argv[1], 10);
+    assert(ok && iterations > 0 && iterations <= 10000000);
+    let implementation = argv[2];
+    let fresh = implementation.ends_with("_fresh");
+    let kind = kind_of(implementation);
+    let comparable: i64 = if kind == 2 { 0 } else { 1 };
+    let policy = b64::Policy { max_out: MAX_OUT };
+    var checksum = 0;
+
     let sizes = [0, 1, 2, 3, 4, 16, 64, 256, 1024, 4096, 65536];
     let names = ["size_0", "size_1", "size_2", "size_3", "size_4", "size_16",
                  "size_64", "size_256", "size_1024", "size_4096", "size_65536"];
-    var checksum = 0;
-    var content_sum = 0;
 
     for index in sizes.len {
         var source: u8[>..] = [];
         for i in sizes[index] { source.push((i * 37 + 11) as! u8); }
-        var mine:   u8[>..] = [];
-        var theirs: u8[>..] = [];
-
-        // Encode, reused buffer: the codec, with allocation amortised.
-        var start = clock_ns();
-        for i in iterations {
-            mine.clear();
-            assert(b64::encode(mine, source, b64::Policy { max_out: MAX_OUT }) == b64::Error.None);
-            checksum += sample(mine);
-        }
-        let mine_ns = clock_ns() - start;
-        start = clock_ns();
-        for i in iterations {
-            theirs.clear();
-            base64::encode(theirs, source);
-            checksum += sample(theirs);
-        }
-        let theirs_ns = clock_ns() - start;
-        assert(mine == theirs);
-        content_sum += content(mine) + content(theirs);
-        print("encode\t", names[index], "\tb64\t", mine_ns, "\t", iterations, "\t",
-              source.len, "\t", mine.len, "\t1");
-        print("encode\t", names[index], "\tstdlib\t", theirs_ns, "\t", iterations, "\t",
-              source.len, "\t", theirs.len, "\t1");
-
-        // Encode, fresh buffer: allocation and ownership cost per call.
-        start = clock_ns();
-        for i in iterations {
-            var fresh: u8[>..] = [];
-            assert(b64::encode(fresh, source, b64::Policy { max_out: MAX_OUT }) == b64::Error.None);
-            checksum += sample(fresh);
-        }
-        let mine_fresh_ns = clock_ns() - start;
-        start = clock_ns();
-        for i in iterations {
-            var fresh: u8[>..] = [];
-            base64::encode(fresh, source);
-            checksum += sample(fresh);
-        }
-        let theirs_fresh_ns = clock_ns() - start;
-        print("encode\t", names[index], "\tb64_fresh\t", mine_fresh_ns, "\t", iterations, "\t",
-              source.len, "\t", mine.len, "\t1");
-        print("encode\t", names[index], "\tstdlib_fresh\t", theirs_fresh_ns, "\t", iterations, "\t",
-              source.len, "\t", theirs.len, "\t1");
-
-        // Decode, reused buffer, on canonical standard padded text.
         var text: u8[>..] = [];
         base64::encode(text, source);
-        mine.clear();
-        theirs.clear();
-        start = clock_ns();
-        for i in iterations {
-            mine.clear();
-            assert(b64::decode(mine, text, b64::Policy { max_out: MAX_OUT }) == b64::Error.None);
-            checksum += sample(mine);
-        }
-        let mine_decode_ns = clock_ns() - start;
-        start = clock_ns();
-        for i in iterations {
-            theirs.clear();
-            assert(base64::decode(theirs, text));
-            checksum += sample(theirs);
-        }
-        let theirs_decode_ns = clock_ns() - start;
-        assert(mine == theirs && mine == source);
-        content_sum += content(mine) + content(theirs);
-        print("decode\t", names[index], "\tb64\t", mine_decode_ns, "\t", iterations, "\t",
-              text.len, "\t", mine.len, "\t1");
-        print("decode\t", names[index], "\tstdlib\t", theirs_decode_ns, "\t", iterations, "\t",
-              text.len, "\t", theirs.len, "\t1");
 
-        // Decode, fresh buffer.
-        start = clock_ns();
-        for i in iterations {
-            var fresh: u8[>..] = [];
-            assert(b64::decode(fresh, text, b64::Policy { max_out: MAX_OUT }) == b64::Error.None);
-            checksum += sample(fresh);
+        // Encode.
+        var elapsed = 0;
+        var produced = 0;
+        if fresh {
+            let start = clock_ns();
+            for i in iterations {
+                var buffer: u8[>..] = [];
+                assert(encode_once(kind, buffer, source, policy));
+                checksum += sample(buffer);
+                produced = buffer.len;
+            }
+            elapsed = clock_ns() - start;
+        } else {
+            var buffer: u8[>..] = [];
+            let start = clock_ns();
+            for i in iterations {
+                buffer.clear();
+                assert(encode_once(kind, buffer, source, policy));
+                checksum += sample(buffer);
+            }
+            elapsed = clock_ns() - start;
+            produced = buffer.len;
         }
-        let mine_decode_fresh_ns = clock_ns() - start;
-        start = clock_ns();
-        for i in iterations {
-            var fresh: u8[>..] = [];
-            assert(base64::decode(fresh, text));
-            checksum += sample(fresh);
+        var final: u8[>..] = [];
+        assert(encode_once(kind, final, source, policy));
+        assert(final.len == produced);
+        row("encode", names[index], implementation, elapsed, iterations, source.len,
+            produced, comparable, fnv(final));
+
+        // Decode.
+        if fresh {
+            let start = clock_ns();
+            for i in iterations {
+                var buffer: u8[>..] = [];
+                assert(decode_once(kind, buffer, text, policy));
+                checksum += sample(buffer);
+                produced = buffer.len;
+            }
+            elapsed = clock_ns() - start;
+        } else {
+            var buffer: u8[>..] = [];
+            let start = clock_ns();
+            for i in iterations {
+                buffer.clear();
+                assert(decode_once(kind, buffer, text, policy));
+                checksum += sample(buffer);
+            }
+            elapsed = clock_ns() - start;
+            produced = buffer.len;
         }
-        let theirs_decode_fresh_ns = clock_ns() - start;
-        print("decode\t", names[index], "\tb64_fresh\t", mine_decode_fresh_ns, "\t", iterations, "\t",
-              text.len, "\t", mine.len, "\t1");
-        print("decode\t", names[index], "\tstdlib_fresh\t", theirs_decode_fresh_ns, "\t", iterations, "\t",
-              text.len, "\t", theirs.len, "\t1");
+        final.clear();
+        assert(decode_once(kind, final, text, policy));
+        assert(final.len == produced);
+        row("decode", names[index], implementation, elapsed, iterations, text.len,
+            produced, comparable, fnv(final));
     }
 
-    // Rejection paths. These are not equal work: this module adds the
-    // canonicality check and the budget, so `comparable` is 0.
-    let rejects = ["noncanonical", "invalid_char", "whitespace", "bad_padding", "url_unpadded"];
-    let rejected = ["Zh==", "Zg!=", "Zg =", "Zg=", "-_8"];
+    // Rejection paths. `b64` and `strict` do the same work here, so they are
+    // comparable; the standard library does less and is not.
+    var long_text: u8[>..] = [];
+    for i in 65536 { long_text.push('A'); }
+    var long_bad = str(long_text);
+    long_bad[long_bad.len - 1] = '!';
+    let rejects = ["noncanonical", "invalid_char", "whitespace", "bad_padding",
+                   "url_unpadded", "invalid_at_end_64k"];
+    let rejected = ["Zh==", "Zg!=", "Zg =", "Zg=", "-_8", long_bad];
     for index in rejects.len {
         let text = rejected[index];
-        var mine: u8[>..] = [];
-        var start = clock_ns();
+        var buffer: u8[>..] = [];
+        let start = clock_ns();
         for i in iterations {
-            mine.clear();
-            if b64::decode(mine, text, b64::Policy { max_out: MAX_OUT }) != b64::Error.None {
-                checksum += 1;
-            }
+            buffer.clear();
+            if !decode_once(kind, buffer, text, policy) { checksum += 1; }
         }
-        let mine_ns = clock_ns() - start;
-        var theirs: u8[>..] = [];
-        start = clock_ns();
-        for i in iterations {
-            theirs.clear();
-            if !base64::decode(theirs, text) { checksum += 1; }
-        }
-        let theirs_ns = clock_ns() - start;
-        print("reject\t", rejects[index], "\tb64\t", mine_ns, "\t", iterations, "\t",
-              text.len, "\t", mine.len, "\t0");
-        print("reject\t", rejects[index], "\tstdlib\t", theirs_ns, "\t", iterations, "\t",
-              text.len, "\t", theirs.len, "\t0");
+        let elapsed = clock_ns() - start;
+        row("reject", rejects[index], implementation, elapsed, iterations, text.len,
+            buffer.len, comparable, fnv(buffer));
     }
 
-    print("checksum\t", checksum, "\t", content_sum);
+    // Valid but worst case for the validating decoder: 64 KiB of 'A', every
+    // group canonical, so the whole text is walked and accepted.
+    {
+        let text = long_text;
+        var buffer: u8[>..] = [];
+        let start = clock_ns();
+        for i in iterations {
+            buffer.clear();
+            assert(decode_once(kind, buffer, text, policy));
+            checksum += sample(buffer);
+        }
+        let elapsed = clock_ns() - start;
+        assert(buffer.len == 49152);
+        row("pathological", "all_A_64k", implementation, elapsed, iterations,
+            text.len, buffer.len, comparable, fnv(buffer));
+    }
+
+    // The consumer end of the path: build an HTTP Basic header value. Only the
+    // two implementations that offer this contract are measured.
+    if kind != 2 {
+        let users = ["Aladdin", "user", "a"];
+        let passwords = ["open sesame", "pass", ""];
+        let consumers = ["basic_auth_rfc7617", "basic_auth_short",
+                         "basic_auth_empty_password"];
+        for index in users.len {
+            var buffer: u8[>..] = [];
+            let start = clock_ns();
+            for i in iterations {
+                buffer.clear();
+                assert(basic_auth_once(kind, buffer, users[index], passwords[index]));
+                checksum += sample(buffer);
+            }
+            let elapsed = clock_ns() - start;
+            row("consumer", consumers[index], implementation, elapsed, iterations,
+                users[index].len + passwords[index].len, buffer.len, comparable,
+                fnv(buffer));
+        }
+    }
+
+    print("checksum\t", checksum);
 }
