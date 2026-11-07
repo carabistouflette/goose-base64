@@ -97,16 +97,25 @@ MUTANTS = [
     {
         "name": "alphabets_not_separated",
         "guarantee": "each alphabet rejects the other's two extra characters",
-        "why": "Accepts '+' and '-' in both alphabets, so the alphabets stop being distinct.",
-        "old": "    if alphabet == Alphabet.Standard {\n"
-               "        if c == '+' { return 62; }\n"
-               "        if c == '/' { return 63; }\n"
-               "    } else {\n"
-               "        if c == '-' { return 62; }\n"
-               "        if c == '_' { return 63; }\n"
-               "    }",
-        "new": "    if c == '+' || c == '-' { return 62; }\n"
-               "    if c == '/' || c == '_' { return 63; }",
+        "why": ("Resolves every byte through the standard table, so the URL "
+                "alphabet accepts '+' and '/' and rejects '-' and '_'."),
+        "old": "    if alphabet == Alphabet.Standard { return STANDARD_VALUES[c]; }\n"
+               "    return URL_VALUES[c];",
+        "new": "    return STANDARD_VALUES[c];",
+    },
+    {
+        "name": "table_entry_outside_alphabet_accepted",
+        "guarantee": "a byte outside the selected alphabet is InvalidCharacter",
+        "why": ("Maps '@' to 0 in the standard table, so a byte that is in "
+                "neither alphabet decodes as a zero sextet. '@' is outside every "
+                "pool the differential corpus draws from, so only the exhaustive "
+                "per-byte test can see this."),
+        "old": "    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 62, 255, 255, 255, 63,\n"
+               "    52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 255, 255, 255, 255, 255, 255,\n"
+               "    255, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,",
+        "new": "    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 62, 255, 255, 255, 63,\n"
+               "    52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 255, 255, 255, 255, 255, 255,\n"
+               "    0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,",
     },
 ]
 

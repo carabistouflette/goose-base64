@@ -79,20 +79,60 @@ fn decoded_len(src: const u8[:], padding: Padding) -> i64 {
     return n / 4 * 3 + (if rest == 0 { 0 } else { rest - 1 });
 }
 
-// The 6-bit value of `c` in `alphabet`, or INVALID. The other alphabet's two
-// extra characters are INVALID, as is every byte outside both alphabets.
+const STANDARD_VALUES: u8[256] = [
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 62, 255, 255, 255, 63,
+    52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 255, 255, 255, 255, 255, 255,
+    255, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 255, 255, 255, 255, 255,
+    255, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+    41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+];
+
+const URL_VALUES: u8[256] = [
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 62, 255, 255,
+    52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 255, 255, 255, 255, 255, 255,
+    255, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 255, 255, 255, 255, 63,
+    255, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+    41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+];
+
+// The 6-bit value of `c` in `alphabet`, or INVALID.
+//
+// A table lookup is intended to cost one load, where the arithmetic form is a
+// chain of range tests. That chain is not a claim about any compiler: it is what
+// the source asks for, and what the C compiler makes of it is its decision. On
+// the recorded toolchain (gcc 16.2.1, `-O2`, x86-64 baseline) the arithmetic
+// form was observed to compile to a branch tree, and this form to one indexed
+// load; see docs/validation.md for the disassembly that was read. No counter
+// measurement of branch misses was taken, so the reason the table is faster is
+// recorded as the measured wall-clock difference, not as a misprediction count.
+//
+// The table also makes every byte outside the alphabet INVALID without a
+// separate range test, which is why the whole 256-byte domain is testable.
 fn value_of(c: u8, alphabet: Alphabet) -> u8 {
-    if c - 'A' < 26 { return c - 'A'; }
-    if c - 'a' < 26 { return c - 'a' + 26; }
-    if c - '0' < 10 { return c - '0' + 52; }
-    if alphabet == Alphabet.Standard {
-        if c == '+' { return 62; }
-        if c == '/' { return 63; }
-    } else {
-        if c == '-' { return 62; }
-        if c == '_' { return 63; }
-    }
-    return INVALID;
+    if alphabet == Alphabet.Standard { return STANDARD_VALUES[c]; }
+    return URL_VALUES[c];
 }
 
 // The character of a 6-bit value in `alphabet` (RFC 4648, table 1). The two
@@ -155,7 +195,9 @@ fn decode(out: u8[>..]&, src: const u8[:], policy: Policy) -> Error {
     let need = decoded_len(src, policy.padding);
     if need < 0 { return Error.InvalidLength; }
     if need > policy.max_out { return Error.OutputBudget; }
-    // `body` excludes the trailing '=' run, so a '=' inside it is misplaced.
+    // Validation pass. `body` excludes the trailing '=' run, so a '=' inside it
+    // is misplaced. Nothing is written until every byte is known valid, so a
+    // rejected call cannot have touched the caller's buffer.
     for i in body {
         let c = src[i];
         if c == '=' { return Error.InvalidPadding; }
@@ -169,26 +211,30 @@ fn decode(out: u8[>..]&, src: const u8[:], policy: Policy) -> Error {
     } else if rest == 3 {
         if (value_of(src[body - 1], policy.alphabet) & 3) != 0 { return Error.NonCanonical; }
     }
-    // Write pass: every byte is now known valid.
-    var i = 0;
-    while i + 4 <= body {
-        let a = value_of(src[i], policy.alphabet);
-        let b = value_of(src[i + 1], policy.alphabet);
-        let c = value_of(src[i + 2], policy.alphabet);
-        let d = value_of(src[i + 3], policy.alphabet);
+    // Write pass: every byte is now known valid. Walking a slice instead of
+    // indexing by a counter is the shape that keeps the four loads and three
+    // stores of a group in bounds without a per-access check; on the recorded
+    // toolchain the generated code for this loop carries none. Whether it is
+    // vectorized is the C compiler's decision and is not claimed here.
+    var s = src[..body];
+    while s.len >= 4 {
+        let a = value_of(s[0], policy.alphabet);
+        let b = value_of(s[1], policy.alphabet);
+        let c = value_of(s[2], policy.alphabet);
+        let d = value_of(s[3], policy.alphabet);
         out.push((a << 2) | (b >> 4));
         out.push((b << 4) | (c >> 2));
         out.push((c << 6) | d);
-        i += 4;
+        s = s[4..];
     }
     if rest == 2 {
-        let a = value_of(src[i], policy.alphabet);
-        let b = value_of(src[i + 1], policy.alphabet);
+        let a = value_of(s[0], policy.alphabet);
+        let b = value_of(s[1], policy.alphabet);
         out.push((a << 2) | (b >> 4));
     } else if rest == 3 {
-        let a = value_of(src[i], policy.alphabet);
-        let b = value_of(src[i + 1], policy.alphabet);
-        let c = value_of(src[i + 2], policy.alphabet);
+        let a = value_of(s[0], policy.alphabet);
+        let b = value_of(s[1], policy.alphabet);
+        let c = value_of(s[2], policy.alphabet);
         out.push((a << 2) | (b >> 4));
         out.push((b << 4) | (c >> 2));
     }

@@ -117,6 +117,42 @@ fn decoded_len_is_shape_only() {
     rejects("========", b64::Alphabet.Standard, b64::Padding.Padded, b64::Error.InvalidPadding);
 }
 
+// Every one of the 256 byte values is classified exactly once, in both
+// alphabets. The decoder resolves a byte through a 256-entry table, so a single
+// wrong entry would silently accept a byte outside the alphabet or reject one
+// inside it; this walks the whole domain instead of sampling it.
+//
+// The text is four characters with the byte under test first, so the data
+// region is a whole group: no trailing bits are unused, and the only outcomes
+// are success, InvalidPadding for '=' and InvalidCharacter for everything else.
+fn every_byte_is_classified() {
+    for alphabet in [b64::Alphabet.Standard, b64::Alphabet.Url] {
+        let symbols = if alphabet == b64::Alphabet.Standard { STANDARD } else { URL };
+        var accepted = 0;
+        for value in 256 {
+            var text = str("");
+            text.push(value as! u8);
+            text.append("AAA");
+            var out: u8[>..] = [];
+            let error = b64::decode(out, text, policy(alphabet, b64::Padding.Unpadded, 8));
+            var inside = false;
+            for i in symbols.len { if symbols[i] == text[0] { inside = true; } }
+            if inside {
+                assert(error == b64::Error.None);
+                assert(out.len == 3);
+                accepted++;
+            } else if text[0] == '=' {
+                assert(error == b64::Error.InvalidPadding);
+                assert(out.len == 0);
+            } else {
+                assert(error == b64::Error.InvalidCharacter);
+                assert(out.len == 0);
+            }
+        }
+        assert(accepted == 64);
+    }
+}
+
 // Truncation and corruption at realistic sizes. The invariant is exact: a
 // failure leaves the buffer byte-identical, a success appends exactly
 // decoded_len bytes after the caller's prefix.
@@ -390,6 +426,7 @@ fn main() {
     budget_counts_appended_only();
     retains_no_reference();
     decoded_len_is_shape_only();
+    every_byte_is_classified();
     truncation_and_corruption();
 
     print("Base64 public API tests passed");
