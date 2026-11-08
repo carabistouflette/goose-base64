@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MARKER = '// Native source SHA256: '
-INPUTS = ('scripts/native-manifest.py', 'b64_accel.cpp',
+INPUTS = ('scripts/native-manifest.py', 'scripts/sanitizer-cc.sh', 'b64_accel.cpp',
           'vendor/simdutf/simdutf.cpp', 'vendor/simdutf/simdutf.h')
 
 

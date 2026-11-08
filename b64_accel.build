@@ -18,4 +18,4 @@ c_libs = ["stdc++"];
 exclude = [".toolchain", ".build"];
 
 // Refresh the included-header fingerprint with make format after native edits.
-// Native source SHA256: 8c812cdc5ef80b60543629ce4e42b6453552fcf605bb36f74ba8d6a8d770705c
+// Native source SHA256: b4d1814188ef6c53cc4a361ee0a0f4e88a61d061faeb27aca5065e652e25bc33

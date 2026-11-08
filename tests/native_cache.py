@@ -19,6 +19,7 @@ def main():
         vendor = root / 'vendor/simdutf'
         vendor.mkdir(parents=True)
         shutil.copyfile(ROOT / 'scripts/native-manifest.py', root / 'scripts/native-manifest.py')
+        shutil.copyfile(ROOT / 'scripts/sanitizer-cc.sh', root / 'scripts/sanitizer-cc.sh')
         (root / 'b64_accel.build').write_text(
             'c_sources = ["b64_accel.cpp", "vendor/simdutf/simdutf.cpp"];\n'
             'c_include = ["vendor/simdutf"];\n')

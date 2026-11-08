@@ -19,11 +19,19 @@ make check test GOOSE=/absolute/path/to/goose
 | `make sanitize` | ASan + UBSan builds of the API test, the corpus, both examples and the aliased-decode lifetime test |
 | `make fuzz` | libFuzzer + ASan + UBSan on the real API: proves both failure paths, then runs two seeds for 120 s each and a coverage pass |
 | `make mutation` | Mutation-tests the documented guarantees; a surviving mutant fails the target |
+| `make bench-smoke` | CI: validate the current comparison harness and equal-contract result digests without a local frozen baseline; no performance qualification |
 | `make bench` | Build and record the benchmark. Run it alone; see [bench/README.md](../bench/README.md) |
 
 `make sanitize` takes `SANITIZER_CC=gcc` or `SANITIZER_CC=clang`. If your shell
 exports a `LD_LIBRARY_PATH` that shadows the system C++ runtime, unset it for
 the sanitizer and fuzz runs: `env -u LD_LIBRARY_PATH make sanitize`.
+
+The sanitizer target proves mixed C/C++ linkage and a real invalid-vptr
+diagnostic before running the API suite. Clang's C driver links the C++
+sanitizer runtime explicitly, and requests `vptr` separately because newer
+Clang versions omit it from the `undefined` group. See the
+[Clang18 UBSan documentation](https://releases.llvm.org/18.1.1/tools/clang/docs/UndefinedBehaviorSanitizer.html)
+and the [current check groups](https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html).
 
 `make fuzz` takes `FUZZ_SECONDS`, `FUZZ_RUNS`, `FUZZ_SEEDS` and `FUZZ_CC`
 (default `clang`). It refuses to report a campaign unless both negative controls

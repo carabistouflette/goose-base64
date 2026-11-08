@@ -8,7 +8,7 @@ FUZZ_RUNS ?= 100000
 FUZZ_SEEDS ?= 20261107,20261108
 FUZZ_COVERAGE ?= 30
 .NOTPARALLEL:
-.PHONY: setup format check test property sanitize fuzz mutation bench
+.PHONY: setup format check test property sanitize fuzz mutation bench bench-smoke
 
 setup:
 	./scripts/setup-goose.sh
@@ -33,7 +33,7 @@ check:
 	"$(GOOSE)" check bench/bench.goose
 	"$(GOOSE)" check bench/strict.goose
 	"$(GOOSE)" check bench/strict_equivalence.goose
-	python3 -m py_compile tests/oracle.py tests/native_cache.py tests/native_scope.py bench/measure.py scripts/*.py
+	python3 -m py_compile tests/oracle.py tests/native_cache.py tests/native_scope.py tests/sanitizer_link.py tests/bench_smoke.py bench/measure.py scripts/*.py
 	git diff --check
 
 test:
@@ -63,6 +63,7 @@ property:
 
 sanitize:
 	mkdir -p .build
+	SANITIZER_CC="$(SANITIZER_CC)" UBSAN_OPTIONS=halt_on_error=1 python3 tests/sanitizer_link.py
 	SANITIZER_CC="$(SANITIZER_CC)" "$(GOOSE)" build tests/api.goose --cc "$(abspath scripts/sanitizer-cc.sh)" --standalone --debug --no-bce -o .build/api-sanitize
 	ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=halt_on_error=1 ./.build/api-sanitize
 	SANITIZER_CC="$(SANITIZER_CC)" "$(GOOSE)" build tests/oracle.goose --cc "$(abspath scripts/sanitizer-cc.sh)" --standalone -O2 --no-bce -o .build/oracle-sanitize
@@ -90,6 +91,15 @@ fuzz:
 # tree and fail on every mutant; a survivor is a test gap and fails the target.
 mutation:
 	python3 scripts/mutation-test.py --goose "$(GOOSE)"
+
+# Portable CI validation of the current harness. No frozen local baseline or
+# network-fetched external comparator is needed; timings are not qualified.
+bench-smoke:
+	mkdir -p .build
+	"$(GOOSE)" build bench/strict_equivalence.goose --cc "$(CC)" -O2 -o .build/strict-equivalence
+	./.build/strict-equivalence
+	"$(GOOSE)" build bench/bench.goose --cc "$(CC)" -O2 -o .build/bench-smoke
+	python3 tests/bench_smoke.py .build/bench-smoke
 
 # Run this target alone, with no other CPU work on the machine, and keep the
 # recorded JSON with its provenance. It goes through bench/campaign.sh so the
