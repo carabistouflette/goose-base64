@@ -33,12 +33,13 @@ check:
 	"$(GOOSE)" check bench/bench.goose
 	"$(GOOSE)" check bench/strict.goose
 	"$(GOOSE)" check bench/strict_equivalence.goose
-	python3 -m py_compile tests/oracle.py tests/native_cache.py bench/measure.py scripts/*.py
+	python3 -m py_compile tests/oracle.py tests/native_cache.py tests/native_scope.py bench/measure.py scripts/*.py
 	git diff --check
 
 test:
 	mkdir -p .build
 	python3 tests/native_cache.py "$(GOOSE)" "$(CC)"
+	python3 tests/native_scope.py "$(GOOSE)"
 	"$(GOOSE)" run tests/api.goose
 	"$(GOOSE)" run tests/accelerated.goose
 	"$(GOOSE)" run tests/stdlib_parity.goose

@@ -14,6 +14,8 @@
 c_sources = ["b64_accel.cpp", "vendor/simdutf/simdutf.cpp"];
 c_include = ["vendor/simdutf"];
 c_libs = ["stdc++"];
+// Setup and generated scratch trees are not part of this native package.
+exclude = [".toolchain", ".build"];
 
 // Refresh the included-header fingerprint with make format after native edits.
-// Native source SHA256: 564ce4e3cb3f9fae6e37acbaa88ea2762bfdd99f5eda995f61104abae052b603
+// Native source SHA256: 8c812cdc5ef80b60543629ce4e42b6453552fcf605bb36f74ba8d6a8d770705c

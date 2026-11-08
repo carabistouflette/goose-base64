@@ -32,6 +32,9 @@ rejects a stale fingerprint; `make test` reproduces that cache behavior in an
 isolated fixture and verifies that refreshing the fingerprint rebuilds it.
 When adding an included native header, add it to `INPUTS` in
 `scripts/native-manifest.py` before refreshing the fingerprint.
+The sidecar excludes `.toolchain` and `.build`: the compiler collects native
+extern declarations recursively, so installed compiler examples and scratch
+fixtures must remain outside the package's native symbol table.
 
 Pin a reviewed full upstream commit in `GOOSE_REVISION`; compiler changes require
 full validation. Profile before optimizing, preserve the safety contracts, run
