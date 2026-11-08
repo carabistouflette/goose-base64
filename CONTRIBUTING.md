@@ -30,6 +30,8 @@ After changing the optional native adapter or its vendored headers, run
 compiler does not track included headers in its package cache stamp. `make check`
 rejects a stale fingerprint; `make test` reproduces that cache behavior in an
 isolated fixture and verifies that refreshing the fingerprint rebuilds it.
+When adding an included native header, add it to `INPUTS` in
+`scripts/native-manifest.py` before refreshing the fingerprint.
 
 Pin a reviewed full upstream commit in `GOOSE_REVISION`; compiler changes require
 full validation. Profile before optimizing, preserve the safety contracts, run

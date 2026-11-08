@@ -47,20 +47,25 @@ def main():
             run(goose, 'build', 'main.goose', '--cc', cc, '-O2', '-o', 'program')
             return run(root / 'program').strip()
 
+        def require(condition, message):
+            if not condition:
+                raise AssertionError(message)
+
         run(sys.executable, 'scripts/native-manifest.py')
-        assert build_value() == '1', 'fixture must execute the initial header value'
+        require(build_value() == '1', 'fixture must execute the initial header value')
         header.write_text('#define HEADER_VALUE 2\n')
         run(sys.executable, 'scripts/native-manifest.py', '--check', expected=1)
         # Negative control: bypassing the stale-manifest gate reproduces the
         # pinned compiler's missing dependency on included native headers.
-        assert build_value() == '1', 'negative control no longer reproduces; recheck workaround'
+        require(build_value() == '1', 'negative control no longer reproduces; recheck workaround')
         run(sys.executable, 'scripts/native-manifest.py')
         run(sys.executable, 'scripts/native-manifest.py', '--check')
-        assert build_value() == '2', 'refreshed fingerprint must invalidate the native cache'
+        require(build_value() == '2', 'refreshed fingerprint must invalidate the native cache')
         target = root / 'b64_accel.build'
         before = (target.read_bytes(), target.stat().st_mtime_ns)
         run(sys.executable, 'scripts/native-manifest.py')
-        assert (target.read_bytes(), target.stat().st_mtime_ns) == before, 'refresh must be a no-op'
+        require((target.read_bytes(), target.stat().st_mtime_ns) == before,
+                'refresh must be a no-op')
     print('native cache: header drift rejected, refreshed build correct, unchanged refresh is a no-op')
 
 
