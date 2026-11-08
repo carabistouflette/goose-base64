@@ -345,8 +345,9 @@ With gcc 16.2.1 at `-O2` for the generic x86-64 target, the range-test chain
 appears inside the inlined `b64_decode` as `lea -0x41(%reg),%reg` /
 `cmp $0x19,%reg8` pairs — compares with conditional branches. The table form
 appears at the same sites as `movzbl 0x0(%rbp,%rdi,1),%edi` and its three
-neighbours. The conditional-branch count in the whole `b64_decode`
-specialization falls from **242 to 122**.
+neighbours. The total branch count across the `b64_decode` specializations
+(excluding `b64_decoded_len`) falls from **242 to 122**; conditional branches
+alone fall from **162 to 92**.
 
 No hardware performance counter was read. No branch-misprediction count, no IPC
 figure and no vectorisation claim is made anywhere in this repository. The
@@ -516,8 +517,8 @@ prototype in the benchmark harness, not a shipped backend: it is C++, its scratc
 buffer is a `std::vector` that models Goose's bump allocator rather than
 measuring it, and the unpadded and URL policies are not covered by the
 length-equality argument. See the competitive review for the full analysis,
-including the buffer-overrun defect the first version had and the ASan evidence
-for the fix.
+including the explicit-capacity API choice and the independent refutation of
+the earlier buffer-overrun allegation for these padded fixtures.
 
 ### What these numbers do and do not establish
 
@@ -647,8 +648,17 @@ make property
 make sanitize SANITIZER_CC=gcc
 make sanitize SANITIZER_CC=clang
 make fuzz                        # 2 x 120 s plus a 30 s coverage pass
-make mutation                    # 9 mutants, about 2 minutes
+make mutation                    # 10 selected mutants
 ```
 
 `make bench` is deliberately separate and must be run alone; see
 [bench/README.md](../bench/README.md).
+
+### Post-review scope clarification
+
+The CPU7 `benchmark.json` campaign is also retained and is disclosed beside
+CPU2 in the README. A campaign gate does not justify a universal ratio across
+CPU classes or prove a causal core-type effect. The headline CPU2 encoding
+multipliers use median paired ratios; the table contains marginal medians.
+Both estimates remain available and are now labelled separately. No codec
+source or recorded measurements changed in this documentation follow-up.

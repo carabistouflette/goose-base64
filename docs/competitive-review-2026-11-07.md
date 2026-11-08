@@ -265,8 +265,8 @@ counterexample and fails the probe.
 ### The measured result
 
 `campaign-fastpath2.json`, gcc 16.2.1, cpu2, accepted, decode, reused buffer.
-This is the **safe** implementation, after the buffer-overrun defect below was
-found and fixed:
+This implementation uses the explicit-capacity API. The earlier alleged
+buffer-overrun defect is withdrawn as explained below:
 
 | Row | 1 KiB | 4 KiB | 64 KiB |
 | --- | --- | --- | --- |
@@ -328,15 +328,15 @@ and both are answered in *The shipped backend* below:
   thing to measure, not something this campaign establishes. The URL alphabet
   *is* covered, because simdutf has `base64_url_with_padding`.
 
-### Buffer safety, and a defect the first prototype had
+### Buffer safety and a withdrawn finding
 
-The first version of this prototype sized the scratch buffer to `need` and called
-`simdutf::base64_to_binary`. That is a **buffer overrun hazard**, and simdutf's
-own documentation says so: the output buffer must be at least
-`maximal_binary_length_from_base64(input, length)` bytes, which is larger than
-`need`, because simdutf may write a partial group before it discovers an error.
-"If you fail to provide that much space, the function may cause a buffer
-overflow."
+The earlier report alleged that a `need`-sized scratch buffer necessarily
+violated `base64_to_binary`'s capacity contract. Independent review refuted
+that claim for this harness. The input-taking overload of
+`maximal_binary_length_from_base64(input, length)` subtracts trailing padding;
+for the shape-checked padded inputs here it equals `need`. An exact-sized
+buffer passed the independent valid/rejection probes under ASan. The shipped
+raw comparator is not established unsafe by the earlier allegation.
 
 The prototype now uses `base64_to_binary_safe` with an explicit `outlen`
 capacity, which cannot write past the buffer. simdutf documents negligible
@@ -671,3 +671,12 @@ way. That is the next patch, and it is named below.
    question is whether the Goose `encode` should keep delegating whole groups to
    the standard library or write them itself, which is a measurement on the
    scalar path and not a contract question.
+
+### Core class and ratio estimates
+
+The CPU2 headline campaign uses median per-round paired ratios. Ratios of its
+marginal medians are different estimates; neither should be substituted for
+the other. A retained CPU7 campaign of the same measured codec has lower
+relative multipliers, disclosed alongside CPU2 in the README. The two campaigns
+do not isolate a causal core-type effect. Pin and report the CPU class before
+comparing results; neither campaign establishes a universal ratio.

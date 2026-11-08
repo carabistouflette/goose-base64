@@ -165,9 +165,12 @@ repository that keeps the same `Policy`, the same `Error` and the same
 atomicity, and decodes and encodes with simdutf. It is opt-in: `import b64`
 builds no C and links no C++ runtime. With it, decoding is **8.9x / 14.4x /
 18.6x** faster than the pure-Goose library at 1 KiB / 4 KiB / 64 KiB, and
-encoding is **20.3x / 21.7x / 23.7x** faster.
+encoding is **20.3x / 21.7x / 23.7x** faster in that CPU2 campaign. These
+headline multipliers are medians of the per-round paired ratios. They are not
+ratios of the marginal medians shown in the tables below; for encoding those
+ratios are 20.0x / 21.5x / 23.7x.
 
-Medians in ns per call, gcc 16.2.1, one fixed CPU (cpu2), 20 paired samples,
+Marginal medians in ns per call, gcc 16.2.1, one fixed CPU (cpu2), 20 paired samples,
 alternating order, identity snapshots stable before and after:
 
 | decode | `b64` | `b64_accel` | `b64_old` | `strict` | `simdutf` | `simdutf_fast` | `aklomp` |
@@ -182,6 +185,26 @@ alternating order, identity snapshots stable before and after:
 | 4 KiB | 4523.0 | **210.1** | 4485.4 | 4483.9 | 243.0 | 242.1 | 726.2 |
 | 64 KiB | 71957.2 | **3038.2** | 72008.8 | 71826.5 | 4571.4 | 4708.3 | 12709.9 |
 
+A second retained campaign of the same measured codec on CPU7 reports the
+following ratios of marginal medians. These describe two recorded campaigns,
+not an isolated causal experiment on core type. CPU2 and CPU7 have different
+reported capacity classes (1005 and 676); frequency, load and other conditions
+can also differ. The harness can choose a least-busy CPU automatically, so
+reproduction must set `BENCH_CPU` explicitly and record its class.
+
+| operation | bytes | CPU2 | CPU7 |
+| --- | ---: | ---: | ---: |
+| decode | 1024 | 8.86x | 7.31x |
+| decode | 4096 | 14.43x | 9.31x |
+| decode | 65536 | 18.56x | 10.19x |
+| encode | 1024 | 19.99x | 13.05x |
+| encode | 4096 | 21.53x | 14.23x |
+| encode | 65536 | 23.68x | 14.37x |
+
+Sources: `campaign-accel.json` (CPU2) and the retained `benchmark.json` (CPU7),
+with raw rounds and identity snapshots. Their gate status does not make either
+campaign a platform-wide performance promise.
+
 `b64_old` is the published revision built from its immutable source archive with
 the current harness. `strict` is the equal-contract Goose competitor.
 `simdutf_fast` is the safe prototype in `bench/ext/bench_ext.cpp`: simdutf into a
@@ -192,13 +215,12 @@ What the numbers say, and what they do not:
 
 - The contract is **not** what costs 9-14x. A backend that keeps it exactly —
   same `Policy`, same `Error`, same atomicity, checked against the Goose
-  implementation on an enumerated differential corpus — is within 1.5x of raw
-  simdutf at 1 KiB and **ahead of it at 64 KiB**, because the C++ harness
+  implementation on an enumerated differential corpus — takes about 1.51 times the raw
+  simdutf row at 1 KiB in the CPU2 campaign and **ahead of it at 64 KiB**, because the C++ harness
   zero-fills its output vector and `b64_accel` writes into the builder's free
   region without a fill.
-- The remaining 1.5x at 1 KiB is the shape check, the budget check, the Goose
-  call and simdutf's own fixed cost on a short input. It is reported, not argued
-  away.
+- The 1 KiB gap includes shape/budget checks, the Goose call and fixed codec
+  costs; this experiment does not isolate their individual contributions.
 - This is **not** a claim of being state of the art. It is a claim that the
   pure-Goose path is 4x better than it was, and that the gap to a SIMD codec is
   available to anyone who wants it, at the price of a 3.6 MB vendored dependency

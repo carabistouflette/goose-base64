@@ -1,7 +1,10 @@
 # Design contract
 
-Strict, bounded RFC 4648 Base64 and Base64url for Goose. Pure Goose, no native
-code, no I/O, no global state. Namespace `b64`.
+Strict, bounded RFC 4648 Base64 and Base64url for Goose. The default `b64`
+package is pure Goose, with no native code, I/O or global state. The separate
+optional `b64_accel` package uses vendored simdutf/C++ under the same policy and
+observable-output contract. Observable output commits only on success; see the
+[backend contract](competitive-review-2026-11-07.md#the-transaction-and-its-limits).
 
 ## Why this exists next to the standard library
 
@@ -112,8 +115,10 @@ the generic x86-64 target, the range-test chain appears inside the inlined
 `b64_decode` as `lea -0x41(%reg),%reg` / `cmp $0x19,%reg8` pairs — a chain of
 compares with conditional branches. The table form appears at the same sites as
 `movzbl 0x0(%rbp,%rdi,1),%edi` and its three neighbours: four consecutive indexed
-loads, one per character of a group. The conditional-branch count in the whole
-`b64_decode` specialization falls from 242 to 122. The two binaries and their
+loads, one per character of a group. The total branch count (conditional plus
+unconditional) in the
+`b64_decode` specializations, excluding `b64_decoded_len`, falls from 242 to 122;
+conditional branches alone fall from 162 to 92. The two binaries and their
 SHA-256 are recorded in `.build/c1/disassembly/`.
 
 What is **not** claimed: no hardware performance counter was read, so no branch
