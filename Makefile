@@ -14,9 +14,11 @@ setup:
 	./scripts/setup-goose.sh
 
 format:
+	python3 scripts/native-manifest.py
 	"$(GOOSE)" format b64.goose b64_accel.goose tests examples bench
 
 check:
+	python3 scripts/native-manifest.py --check
 	"$(GOOSE)" format --check b64.goose b64_accel.goose tests examples bench
 	"$(GOOSE)" check b64.goose
 	"$(GOOSE)" check b64_accel.goose
@@ -36,6 +38,7 @@ check:
 
 test:
 	mkdir -p .build
+	python3 tests/native_cache.py "$(GOOSE)" "$(CC)"
 	"$(GOOSE)" run tests/api.goose
 	"$(GOOSE)" run tests/accelerated.goose
 	"$(GOOSE)" run tests/stdlib_parity.goose

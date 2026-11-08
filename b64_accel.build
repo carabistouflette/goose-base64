@@ -14,3 +14,6 @@
 c_sources = ["b64_accel.cpp", "vendor/simdutf/simdutf.cpp"];
 c_include = ["vendor/simdutf"];
 c_libs = ["stdc++"];
+
+// Refresh the included-header fingerprint with make format after native edits.
+// Native source SHA256: 564ce4e3cb3f9fae6e37acbaa88ea2762bfdd99f5eda995f61104abae052b603
