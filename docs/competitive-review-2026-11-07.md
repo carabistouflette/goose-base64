@@ -150,15 +150,42 @@ repository links them, and the library itself remains pure Goose.
 
 ## Measured results
 
-The campaigns are recorded in `.build/c1/` and are reproduced by
-`bench/campaign.sh`. Each is 21 samples (one warmup, 20 measured), alternating
+### Historical dirty-tree scope
+
+The five records `campaign-confirm.json`, `campaign-clang.json`,
+`campaign-fastpath2.json`, `campaign-accel.json` and `campaign-accel-cpu0.json`
+each record `dirty: true` alongside `status: accepted`. Here `accepted` means
+the runner's checks passed for that invocation; it does not establish a clean
+source revision, current-source qualification or independent replication.
+Their `source_revision` identifies the Git HEAD at capture time, while their
+`source_sha256` maps identify the measured file bytes. Those maps differ from
+the named commits, so checking out the named revision alone does not reproduce
+the measured inputs.
+
+For example, `campaign-confirm.json` records `b64.goose` SHA-256
+`338bfc8d839d66646e12bf58f3cd4aa8c1685d9d9071c7be59f63ea4b440e219`.
+A matching source snapshot remains locally at
+`.build/c1/variants/b64-v2-table-push.goose`; it is not the file at the report's
+named commit. A snapshot of one file does not reconstruct the full measured
+source and harness. The records and this snapshot live under ignored `.build/`
+paths, so a public checkout alone does not include them.
+
+The tables below are retained as historical observations of those captured
+inputs. Before using them to qualify a release or current branch, retain the
+complete measured inputs and raw reports, or rerun from a clean, identified
+revision with the exact harness and toolchain. No new measurement is claimed
+by this clarification.
+
+The campaigns are recorded in `.build/c1/`; `bench/campaign.sh` runs the
+protocol on the inputs present when invoked, rather than reconstructing these
+historical dirty trees. Each is 21 samples (one warmup, 20 measured), alternating
 implementation order, all implementations on one fixed CPU, with the contention
 gate and the identity snapshots described in `bench/measure.py`.
 
 | Campaign | Compiler | CPU | Status |
 | --- | --- | --- | --- |
 | `campaign-1.json` | gcc 16.2.1 | 2 | first campaign; superseded by the confirmation run |
-| `campaign-confirm.json` | gcc 16.2.1 | 2 | **accepted**; independent of the first |
+| `campaign-confirm.json` | gcc 16.2.1 | 2 | runner accepted on a dirty tree; separate from the first run |
 | `campaign-clang.json` | clang 23.1.4 | 2 | portability vs native: the stdlib's `simd fn` versions exist only here |
 
 The numbers, the dispersion, the bootstrap intervals and the raw per-sample

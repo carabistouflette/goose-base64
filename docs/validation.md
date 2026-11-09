@@ -2,6 +2,12 @@
 
 What was executed, with the exact commands and results, and what was not.
 
+The performance campaigns cited here are historical dirty-tree observations.
+Their `accepted` status is a runner outcome, not a clean-source qualification.
+See the [attribution limits](competitive-review-2026-11-07.md#historical-dirty-tree-scope)
+before applying their ratios to a checkout or release. A named `source_revision`
+alone does not reconstruct the measured inputs; no new timing is reported here.
+
 ## Provenance
 
 | Item | Value |
