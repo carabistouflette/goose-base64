@@ -19,4 +19,4 @@ jobs:
       - run: make property
       - run: make sanitize SANITIZER_CC=gcc
       - run: make sanitize SANITIZER_CC=clang
-      - run: make bench BENCH_ITERATIONS=100
+      - run: make bench-smoke

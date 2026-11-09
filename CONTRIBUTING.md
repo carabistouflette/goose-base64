@@ -25,6 +25,19 @@ and budget extremes, failure atomicity and the four policy combinations. Keep CI
 passing. Never commit credentials, generated compiler output or private
 workspace notes.
 
+After changing the optional native adapter or its vendored headers, run
+`make format` to refresh the fingerprint in `b64_accel.build`. The pinned Goose
+compiler does not track included headers in its package cache stamp. `make check`
+rejects a stale fingerprint; `make test` reproduces that cache behavior in an
+isolated fixture and verifies that refreshing the fingerprint rebuilds it.
+When adding an included native header, add it to `INPUTS` in
+`scripts/native-manifest.py` before refreshing the fingerprint.
+The fingerprint also covers the sanitizer compiler wrapper so a change to its
+instrumentation flags rebuilds the native objects on the pinned compiler.
+The sidecar excludes `.toolchain` and `.build`: the compiler collects native
+extern declarations recursively, so installed compiler examples and scratch
+fixtures must remain outside the package's native symbol table.
+
 Pin a reviewed full upstream commit in `GOOSE_REVISION`; compiler changes require
 full validation. Profile before optimizing, preserve the safety contracts, run
 every benchmark fixture, and retain raw samples plus compiler, hardware, flags

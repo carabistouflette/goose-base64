@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+// The optional native part of goose-base64.
+//
+// This sidecar belongs to the `b64_accel` package, not to `b64`: the compiler
+// looks for `<name>.build` beside `<name>.goose`, so `import b64` finds no
+// sidecar and builds no C. A consumer that wants the accelerated path imports
+// `b64_accel` and pays the C++ toolchain and the vendored dependency only then.
+//
+// simdutf is vendored as its own single-header amalgamation at the pinned
+// commit recorded in THIRD_PARTY_NOTICES.md, so the build needs no network and
+// no system package. It is C++, so the link line needs the C++ runtime; the
+// compiler drives every source with the C compiler, which selects the language
+// from the extension.
+c_sources = ["b64_accel.cpp", "vendor/simdutf/simdutf.cpp"];
+c_include = ["vendor/simdutf"];
+c_libs = ["stdc++"];
+// Setup and generated scratch trees are not part of this native package.
+exclude = [".toolchain", ".build"];
+
+// Refresh the included-header fingerprint with make format after native edits.
+// Native source SHA256: b4d1814188ef6c53cc4a361ee0a0f4e88a61d061faeb27aca5065e652e25bc33

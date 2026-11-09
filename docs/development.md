@@ -16,12 +16,28 @@ make check test GOOSE=/absolute/path/to/goose
 | `make check` | Format check, typecheck every Goose file, compile the Python files, `git diff --check` |
 | `make test` | API tests, standard-library parity, both examples, JIT and native builds, the aliasing compile test, the differential corpus |
 | `make property` | The differential corpus and the parity test against a `--debug --no-bce` build |
-| `make sanitize` | ASan + UBSan builds of the API test, the corpus and both examples |
+| `make sanitize` | ASan + UBSan builds of the API test, the corpus, both examples and the aliased-decode lifetime test |
+| `make fuzz` | libFuzzer + ASan + UBSan on the real API: proves both failure paths, then runs two seeds for 120 s each and a coverage pass |
+| `make mutation` | Mutation-tests the documented guarantees; a surviving mutant fails the target |
+| `make bench-smoke` | CI: validate the current comparison harness and equal-contract result digests without a local frozen baseline; no performance qualification |
 | `make bench` | Build and record the benchmark. Run it alone; see [bench/README.md](../bench/README.md) |
 
 `make sanitize` takes `SANITIZER_CC=gcc` or `SANITIZER_CC=clang`. If your shell
 exports a `LD_LIBRARY_PATH` that shadows the system C++ runtime, unset it for
-the sanitizer run: `env -u LD_LIBRARY_PATH make sanitize`.
+the sanitizer and fuzz runs: `env -u LD_LIBRARY_PATH make sanitize`.
+
+The sanitizer target proves mixed C/C++ linkage and a real invalid-vptr
+diagnostic before running the API suite. Clang's C driver links the C++
+sanitizer runtime explicitly, and requests `vptr` separately because newer
+Clang versions omit it from the `undefined` group. See the
+[Clang18 UBSan documentation](https://releases.llvm.org/18.1.1/tools/clang/docs/UndefinedBehaviorSanitizer.html)
+and the [current check groups](https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html).
+
+`make fuzz` takes `FUZZ_SECONDS`, `FUZZ_RUNS`, `FUZZ_SEEDS` and `FUZZ_CC`
+(default `clang`). It refuses to report a campaign unless both negative controls
+fire first: a forced Goose assertion retained by the fuzzer, and a deliberate
+overread caught by ASan. Keep `.build/fuzz/campaign.json` with its corpus and
+logs.
 
 ## Adding a test
 

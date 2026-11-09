@@ -1,7 +1,10 @@
 # Design contract
 
-Strict, bounded RFC 4648 Base64 and Base64url for Goose. Pure Goose, no native
-code, no I/O, no global state. Namespace `b64`.
+Strict, bounded RFC 4648 Base64 and Base64url for Goose. The default `b64`
+package is pure Goose, with no native code, I/O or global state. The separate
+optional `b64_accel` package uses vendored simdutf/C++ under the same policy and
+observable-output contract. Observable output commits only on success; see the
+[backend contract](competitive-review-2026-11-07.md#the-transaction-and-its-limits).
 
 ## Why this exists next to the standard library
 
@@ -99,6 +102,43 @@ characters, 4 are canonical for a two-character tail and 16 for a
 three-character tail; `tests/api.goose` checks both exhaustively and
 `tests/stdlib_parity.goose` shows the standard library accepting all 64.
 
+## Decoding shape
+
+`decode` is two passes over the text, and both passes classify bytes through a
+256-entry table per alphabet (`STANDARD_VALUES`, `URL_VALUES`). The table maps a
+byte to its six-bit value, or to a sentinel for "not in this alphabet". It
+replaced a chain of range tests, and the replacement is the reason decoding is
+about four times faster than the previous release.
+
+The evidence is the compiled code, not an argument. With gcc 16.2.1 at `-O2` for
+the generic x86-64 target, the range-test chain appears inside the inlined
+`b64_decode` as `lea -0x41(%reg),%reg` / `cmp $0x19,%reg8` pairs — a chain of
+compares with conditional branches. The table form appears at the same sites as
+`movzbl 0x0(%rbp,%rdi,1),%edi` and its three neighbours: four consecutive indexed
+loads, one per character of a group. The total branch count (conditional plus
+unconditional) in the
+`b64_decode` specializations, excluding `b64_decoded_len`, falls from 242 to 122;
+conditional branches alone fall from 162 to 92. The two binaries and their
+SHA-256 are recorded in `.build/c1/disassembly/`.
+
+What is **not** claimed: no hardware performance counter was read, so no branch
+misprediction count, no IPC figure and no vectorisation claim is made. The
+mechanism above is the plausible cause of the measured wall-clock difference, not
+a measured one, and it is compiler- and ISA-dependent. The measurement that
+supports the speed claim is the campaign in
+[the competitive review](competitive-review-2026-11-07.md).
+
+The write pass walks a slice (`var s = src[..body]; while s.len >= 4`) rather
+than indexing with a counter. That is a shape choice, not a speed claim: it keeps
+the loop body reading `s[0]`..`s[3]` and advancing `s`, which is what the
+compiler needs to keep the four loads independent.
+
+Two passes are kept deliberately. A single pass that writes and rolls back on
+rejection would let a rejected call grow the caller's buffer and could abort
+where the previous version returned an error — both are contract changes, and
+neither is worth the second pass. The second pass costs one extra read of the
+input and no extra write.
+
 ## Limits
 
 | Limit | Value | Enforced by |
@@ -120,11 +160,28 @@ be removed. `decode` allocates nothing beyond the output growth. The runtime
 controls allocation capacity, which may exceed logical length; `max_out` is
 not a bound on allocator overhead or retained capacity.
 
-`src` must not alias `out`. The compiler enforces this statically: a call whose
-source slice points into the buffer being grown is rejected with "cannot resize
-out while src is still used: it may hold a reference or slice into it (§5.1)".
-`tests/alias_rejected.sh` asserts that diagnostic, so the guarantee is checked
-rather than assumed.
+`src` must not alias `out`. How strongly that is enforced depends on the
+function, and the difference is checked rather than assumed:
+
+- `encode` is rejected statically. It delegates whole groups to
+  `base64::encode`, which resizes `out` while `src` is still live, so the
+  compiler reports "cannot resize out while src is still used: it may hold a
+  reference or slice into it (§5.1)".
+- `decode` is not. Its write pass grows `out` with `push`, which the §5.1 check
+  does not flag, so the compiler accepts an aliased call. Non-aliasing is a
+  documented caller requirement there.
+
+The `decode` gap is a contract question, not a memory-safety one. Data stacks
+are fixed reserved regions (`gs_reserve_region`) grown by bump pointer and never
+reallocated, so a source pointer into the region stays valid while the call
+appends; and the write pass starts at the buffer's end, which is at or after the
+end of any slice of that buffer, so the source is never overwritten. An aliased
+call therefore yields the text followed by its own decoding — well defined, and
+outside the contract.
+
+`tests/alias_rejected.sh` pins the compile-time behaviour of both functions and
+`tests/alias_decode_lifetime.goose` pins the runtime behaviour, so a change in
+either direction fails a test and forces this section to be updated.
 
 ## What is reused, and what is not
 

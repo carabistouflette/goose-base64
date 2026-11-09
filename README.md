@@ -35,7 +35,7 @@ To use the library in your own application, save this as `app.goose` and run
 `goose run app.goose` with that compiler on your `PATH`:
 
 ```goose
-import b64 from "carabistouflette/goose-base64@8a8d953216828bfe7628605895034354a06bc5b7";
+import b64 from "carabistouflette/goose-base64@334e708d4d02448ae9caeb8767d773516a1f99ed";
 import std;
 
 fn main() {
@@ -63,6 +63,33 @@ checkout, use `import b64 from "../goose-base64";` instead.
 
 The namespace is `b64`, not `base64`: the pinned standard library already owns
 `base64`, and this module imports it.
+
+### The optional accelerated package
+
+`b64_accel` is a second package in the same repository with the same contract
+and a SIMD codec underneath. It is a separate import, so nothing is paid for it
+unless it is asked for:
+
+```goose
+import b64 from "carabistouflette/goose-base64@<ref>";
+import b64_accel from "carabistouflette/goose-base64@<ref>";
+import std;
+
+fn main() {
+    var text: u8[>..] = [];
+    let policy = b64::Policy { max_out: 64 };
+    // Same Policy, same Error, same bytes; simdutf does the work.
+    if b64_accel::encode(text, "foobar", policy) != b64::Error.None { return; }
+    print(text);                       // Zm9vYmFy
+}
+```
+
+Both imports name the same source, so `b64_accel` uses `b64::Policy` and
+`b64::Error` themselves rather than copies. Importing `b64` alone builds no C
+and links no C++ runtime: the compiler looks for `<name>.build` beside
+`<name>.goose`, and there is no `b64.build`. Importing `b64_accel` compiles the
+vendored simdutf once per C compiler and links it statically. The native decode
+covers the padded policy; unpadded text falls back to the Goose decoder.
 
 ## API and limits
 
@@ -98,12 +125,115 @@ Encoding and decoding take O(n) time and O(1) extra space beyond the output.
 The logical output grows by exactly the appended count; the runtime controls
 the buffer's allocation capacity. `max_out` limits appended bytes, not allocator
 overhead or retained capacity. There is no library input-size cap: callers must
-bound the read, the write and total work. `src` must not alias `out`; the
-compiler rejects that statically.
+bound the read, the write and total work.
+
+Decoding classifies each byte through a 256-entry table per alphabet, so the
+module carries 512 bytes of static data. That is the whole of its state: there
+is no allocation, no cache and no initialisation step. The table replaced a
+range-test chain whose compiled form was a branch tree; see
+[the design contract](docs/design.md) for the disassembly evidence and
+[the competitive review](docs/competitive-review-2026-11-07.md) for what the
+change does and does not buy against a SIMD codec.
+
+`src` must not alias `out`. The compiler rejects that statically for `encode`,
+with "cannot resize out while src is still used" (§5.1). For `decode` it is a
+caller requirement rather than a compile-time guarantee: the write pass grows
+the buffer with `push`, which the §5.1 check does not flag. Such a call is not a
+memory-safety hazard — data stacks are fixed reserved regions grown by bump
+pointer and never reallocated, so the source bytes stay valid — but it appends
+the decoding after the text, which is outside the contract.
+`tests/alias_rejected.sh` pins the compile-time behaviour and
+`tests/alias_decode_lifetime.goose` pins the runtime behaviour, so both are
+checked rather than assumed.
 
 The library does not provide streaming, MIME line folding, `base32`/`base16`,
 alphabet detection, whitespace tolerance or I/O. Decoding is not constant-time
 and must not be used to compare secrets.
+
+## Performance
+
+Two numbers, because there are two things to say.
+
+**The pure-Goose library.** Decoding is about four times faster than the
+previous release on inputs of 1 KiB and larger, and about twice as fast as the
+equal-contract Goose competitor in `bench/strict.goose`. Encoding is unchanged.
+That is the whole of what changed in `b64.goose`: `value_of` classifies a byte
+through a 256-entry table instead of a chain of range tests.
+
+**The optional native backend.** `b64_accel` is a separate package in this
+repository that keeps the same `Policy`, the same `Error` and the same
+atomicity, and decodes and encodes with simdutf. It is opt-in: `import b64`
+builds no C and links no C++ runtime. With it, decoding is **8.9x / 14.4x /
+18.6x** faster than the pure-Goose library at 1 KiB / 4 KiB / 64 KiB, and
+encoding is **20.3x / 21.7x / 23.7x** faster in that CPU2 campaign. These
+headline multipliers are medians of the per-round paired ratios. They are not
+ratios of the marginal medians shown in the tables below; for encoding those
+ratios are 20.0x / 21.5x / 23.7x.
+
+Marginal medians in ns per call, gcc 16.2.1, one fixed CPU (cpu2), 20 paired samples,
+alternating order, identity snapshots stable before and after:
+
+| decode | `b64` | `b64_accel` | `b64_old` | `strict` | `simdutf` | `simdutf_fast` | `aklomp` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 KiB | 1260.1 | **142.2** | 5037.6 | 2426.6 | 93.9 | 138.1 | 868.0 |
+| 4 KiB | 4846.1 | **335.7** | 19742.3 | 9491.9 | 317.3 | 364.5 | 3383.6 |
+| 64 KiB | 76813.4 | **4138.3** | 315084.4 | 151728.7 | 5043.2 | 5680.1 | 52778.2 |
+
+| encode | `b64` | `b64_accel` | `b64_old` | `strict` | `simdutf` | `simdutf_fast` | `aklomp` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 KiB | 1237.3 | **61.9** | 1217.4 | 1234.5 | 61.8 | 63.6 | 191.5 |
+| 4 KiB | 4523.0 | **210.1** | 4485.4 | 4483.9 | 243.0 | 242.1 | 726.2 |
+| 64 KiB | 71957.2 | **3038.2** | 72008.8 | 71826.5 | 4571.4 | 4708.3 | 12709.9 |
+
+A second retained campaign of the same measured codec on CPU7 reports the
+following ratios of marginal medians. These describe two recorded campaigns,
+not an isolated causal experiment on core type. CPU2 and CPU7 have different
+reported capacity classes (1005 and 676); frequency, load and other conditions
+can also differ. The harness can choose a least-busy CPU automatically, so
+reproduction must set `BENCH_CPU` explicitly and record its class.
+
+| operation | bytes | CPU2 | CPU7 |
+| --- | ---: | ---: | ---: |
+| decode | 1024 | 8.86x | 7.31x |
+| decode | 4096 | 14.43x | 9.31x |
+| decode | 65536 | 18.56x | 10.19x |
+| encode | 1024 | 19.99x | 13.05x |
+| encode | 4096 | 21.53x | 14.23x |
+| encode | 65536 | 23.68x | 14.37x |
+
+Sources: `campaign-accel.json` (CPU2) and the retained `benchmark.json` (CPU7),
+with raw rounds and identity snapshots. Their gate status does not make either
+campaign a platform-wide performance promise.
+
+`b64_old` is the published revision built from its immutable source archive with
+the current harness. `strict` is the equal-contract Goose competitor.
+`simdutf_fast` is the safe prototype in `bench/ext/bench_ext.cpp`: simdutf into a
+scratch, then a copy. `simdutf` is simdutf writing straight into the output
+buffer, which is the ceiling for this workload.
+
+What the numbers say, and what they do not:
+
+- The contract is **not** what costs 9-14x. A backend that keeps it exactly —
+  same `Policy`, same `Error`, same atomicity, checked against the Goose
+  implementation on an enumerated differential corpus — takes about 1.51 times the raw
+  simdutf row at 1 KiB in the CPU2 campaign and **ahead of it at 64 KiB**, because the C++ harness
+  zero-fills its output vector and `b64_accel` writes into the builder's free
+  region without a fill.
+- The 1 KiB gap includes shape/budget checks, the Goose call and fixed codec
+  costs; this experiment does not isolate their individual contributions.
+- This is **not** a claim of being state of the art. It is a claim that the
+  pure-Goose path is 4x better than it was, and that the gap to a SIMD codec is
+  available to anyone who wants it, at the price of a 3.6 MB vendored dependency
+  and a C++ toolchain, in a package they have to import on purpose.
+- The native decode covers the padded policy only. Unpadded text still goes
+  through the Goose decoder; that is the next patch, and it is named in
+  [the competitive review](docs/competitive-review-2026-11-07.md#next-iteration).
+
+The design, the contract argument, the differential corpus, the negative
+controls and the dependency cost are in
+[the competitive review](docs/competitive-review-2026-11-07.md). The raw
+campaigns are reproduced by `bench/campaign.sh` and described in
+[benchmark scope](bench/README.md).
 
 ## Why not the standard library
 
@@ -152,7 +282,8 @@ Validated on Linux x86-64 with the pinned Goose compiler, GCC and Clang; CI runs
 on Ubuntu 24.04. The library is pure Goose and makes no OS calls. Other
 platforms and compiler revisions have not been verified. Tests need Python 3.11+.
 
-Run `make check test` after setup. See [development commands](docs/development.md),
+Run `make check test` after setup, and `make fuzz mutation` before claiming a
+behaviour change is proven. See [development commands](docs/development.md),
 [validation history](docs/validation.md) and
 [benchmark scope](bench/README.md). CI checks that the benchmark harness builds
 and runs, without timing thresholds. See [contributing](CONTRIBUTING.md),
